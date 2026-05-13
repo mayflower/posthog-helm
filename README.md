@@ -1,17 +1,46 @@
 # PostHog Helm Chart
 
-This chart is a clean v1 Kubernetes chart for the current PostHog compose-era service topology in the sibling `posthog` source tree.
+This chart is a clean v1 Kubernetes chart for the current PostHog service topology in the sibling `posthog` source tree.
 
-It intentionally does not preserve the old `PostHog/charts-clickhouse` values API. That repository is useful historical context, but its dependency stack and workload split are outdated.
+It intentionally does not preserve the old [`PostHog/charts-clickhouse`](https://github.com/PostHog/charts-clickhouse) values API. That repository is useful historical context, but its dependency stack and workload split are outdated. PostHog also published the background for ending official chart support in [Sunsetting Helm support for self-hosted PostHog](https://posthog.com/blog/sunsetting-helm-support-posthog).
 
-The default PostHog image tag is pinned to the local source snapshot `696b444135bb`. Mutable tags such as `master` and `latest` are rejected by default; use `global.allowMutableImageTags=true` only for development.
+The PostHog-owned runtime images follow the upstream container defaults and use the mutable `master` tag by default. `global.imagePullPolicy` defaults to `Always` so Kubernetes refreshes those images on rollout. Override `images.*.tag` in production when you need a controlled rollout.
 
 ## Profiles
 
 - `profile.mode=bundled` deploys PostHog plus bundled backing services through maintained subcharts where practical.
 - `profile.mode=external` deploys PostHog workloads and requires managed Postgres, Redis, Kafka/Redpanda, ClickHouse, object storage, session recording storage, and Temporal endpoints.
 
-## Common Commands
+## Install
+
+Install the bundled profile for a non-production evaluation:
+
+```bash
+helm upgrade --install posthog . \
+  --namespace posthog \
+  --create-namespace \
+  --set global.domain=posthog.example.com \
+  --set global.siteUrl=https://posthog.example.com
+```
+
+For production, use external backing services and provide runtime secrets before installing:
+
+```bash
+kubectl create namespace posthog
+kubectl -n posthog create secret generic posthog-runtime-secrets \
+  --from-literal=SECRET_KEY='<replace-me>' \
+  --from-literal=ENCRYPTION_SALT_KEYS='<replace-me>' \
+  --from-literal=CAPTURE_LOGS_JWT_SECRET='<replace-me>' \
+  --from-literal=LIVESTREAM_JWT_SECRET='<replace-me>'
+
+helm upgrade --install posthog . \
+  --namespace posthog \
+  -f ./examples/external-values.yaml
+```
+
+The external example expects separate provider-managed secrets for Postgres, ClickHouse, object storage, and session recording credentials. Update `examples/external-values.yaml` with your service endpoints and secret names before running the install.
+
+## Validate
 
 Dependencies are vendored as unpacked chart directories because Helm 4 linting expects directories, while `helm dependency update` writes archives.
 
@@ -19,10 +48,9 @@ Dependencies are vendored as unpacked chart directories because Helm 4 linting e
 helm lint --strict .
 helm template posthog . > /tmp/posthog.yaml
 helm template posthog . -f ./examples/external-values.yaml > /tmp/posthog-external.yaml
-helm template posthog . -f ./examples/full-compose-values.yaml > /tmp/posthog-full.yaml
 ```
 
-To refresh dependencies:
+Refresh dependencies after changing `Chart.yaml` dependency versions:
 
 ```bash
 helm dependency update .
@@ -95,15 +123,3 @@ All workload components support the shared scheduling and availability controls:
 - Per-component `autoscaling` creates an `autoscaling/v2` HPA.
 - Per-component `pdb` creates a `policy/v1` PodDisruptionBudget.
 - Stateful component `persistence` supports `size`, `storageClass`, and `accessModes`.
-
-## Compose Coverage
-
-The chart models the runtime services from the hobby/base stack and exposes the dev/full compose support services as disabled components in `examples/full-compose-values.yaml`.
-
-The following compose entries are intentionally not rendered as first-class Kubernetes workloads:
-
-- `app` from `docker-compose.sandbox.yml`: a local devcontainer/IDE sandbox, not a deployable PostHog runtime service.
-- `playwright` from `docker-compose.playwright.yml`: a local test runner with host-network and source mounts.
-- `clickhouse-coordinator` from `docker-compose.dev-coordinator.yml`: a local multi-node ClickHouse development topology; production ClickHouse should be supplied by the operator or a managed/external cluster.
-- `redis-cluster` from dev compose: a single-container local Redis cluster shim for tests; production Redis clustering should be handled by the Redis provider/chart.
-- `opensearch-init` from dev compose: a profile-specific bootstrap helper tied to source-tree files; carry it as a site-specific Job when enabling that OpenSearch profile.

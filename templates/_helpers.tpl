@@ -149,7 +149,7 @@ postgres-password
 {{- $repository := required (printf "images.%s.repository is required" $imageName) $image.repository -}}
 {{- $tag := required (printf "images.%s.tag is required" $imageName) $image.tag -}}
 {{- if and (not $root.Values.global.allowMutableImageTags) (or (eq $tag "latest") (eq $tag "master")) -}}
-{{- fail (printf "images.%s.tag must be immutable unless global.allowMutableImageTags=true" $imageName) -}}
+{{- fail (printf "images.%s.tag is mutable; set global.allowMutableImageTags=true or provide an immutable tag" $imageName) -}}
 {{- end -}}
 {{- printf "%s:%s" $repository $tag -}}
 {{- end -}}

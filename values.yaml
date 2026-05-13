@@ -5,7 +5,7 @@ global:
   domain: posthog.local
   siteUrl: http://posthog.local
   deployment: hobby
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   imagePullSecrets: []
   labels: {}
   annotations: {}
@@ -16,7 +16,7 @@ global:
   tolerations: []
   topologySpreadConstraints: []
   priorityClassName: ""
-  allowMutableImageTags: false
+  allowMutableImageTags: true
 
 subcharts:
   redpanda:
@@ -49,37 +49,37 @@ secrets:
 images:
   app:
     repository: ghcr.io/posthog/posthog
-    tag: 696b444135bb
+    tag: master
   node:
     repository: ghcr.io/posthog/posthog-node
-    tag: 696b444135bb
+    tag: master
   capture:
     repository: ghcr.io/posthog/posthog/capture
-    tag: 696b444135bb
+    tag: master
   captureLogs:
     repository: ghcr.io/posthog/posthog/capture-logs
-    tag: 696b444135bb
+    tag: master
   propertyDefs:
     repository: ghcr.io/posthog/posthog/property-defs-rs
-    tag: 696b444135bb
+    tag: master
   featureFlags:
     repository: ghcr.io/posthog/posthog/feature-flags
-    tag: 696b444135bb
+    tag: master
   personhogReplica:
     repository: ghcr.io/posthog/posthog/personhog-replica
-    tag: 696b444135bb
+    tag: master
   personhogRouter:
     repository: ghcr.io/posthog/posthog/personhog-router
-    tag: 696b444135bb
+    tag: master
   hypercache:
     repository: ghcr.io/posthog/posthog/hypercache-server
-    tag: 696b444135bb
+    tag: master
   livestream:
     repository: ghcr.io/posthog/posthog/livestream
-    tag: 696b444135bb
+    tag: master
   cymbal:
     repository: ghcr.io/posthog/posthog/cymbal
-    tag: 696b444135bb
+    tag: master
   redpandaTools:
     repository: docker.redpanda.com/redpandadata/redpanda
     tag: v25.1.9
