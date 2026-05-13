@@ -464,9 +464,38 @@ redis-password
 - name: CLICKHOUSE_VERIFY
   value: {{ include "posthog.clickhouseVerify" . | quote }}
 {{- with (include "posthog.clickhouseMigrationsCluster" .) }}
+- name: CLICKHOUSE_CLUSTER
+  value: {{ . | quote }}
 - name: CLICKHOUSE_MIGRATIONS_CLUSTER
   value: {{ . | quote }}
+- name: CLICKHOUSE_SINGLE_SHARD_CLUSTER
+  value: {{ . | quote }}
+- name: CLICKHOUSE_WRITABLE_CLUSTER
+  value: {{ . | quote }}
+- name: CLICKHOUSE_PRIMARY_REPLICA_CLUSTER
+  value: {{ . | quote }}
+- name: CLICKHOUSE_AUX_CLUSTER
+  value: {{ . | quote }}
+- name: CLICKHOUSE_AI_EVENTS_CLUSTER
+  value: {{ . | quote }}
+- name: CLICKHOUSE_LOGS_CLUSTER
+  value: {{ . | quote }}
 {{- end }}
+- name: CLICKHOUSE_LOGS_CLUSTER_HOST
+  value: {{ include "posthog.clickhouseHost" . | quote }}
+- name: CLICKHOUSE_LOGS_CLUSTER_DATABASE
+  value: {{ include "posthog.clickhouseDatabase" . | quote }}
+- name: CLICKHOUSE_LOGS_CLUSTER_USER
+  value: {{ include "posthog.clickhouseUser" . | quote }}
+- name: CLICKHOUSE_LOGS_CLUSTER_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.clickhousePasswordSecretName" . }}
+      key: {{ include "posthog.clickhousePasswordSecretKey" . }}
+- name: CLICKHOUSE_LOGS_CLUSTER_SECURE
+  value: {{ include "posthog.clickhouseSecure" . | quote }}
+- name: CLICKHOUSE_LOGS_CLUSTER_VERIFY
+  value: {{ include "posthog.clickhouseVerify" . | quote }}
 - name: OBJECT_STORAGE_ENABLED
   value: "true"
 - name: OBJECT_STORAGE_ENDPOINT

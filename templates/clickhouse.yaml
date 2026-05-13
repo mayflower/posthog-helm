@@ -7,6 +7,12 @@ metadata:
     {{- include "posthog.labels" . | nindent 4 }}
 spec:
   configuration:
+    {{- if .Values.zookeeper.enabled }}
+    zookeeper:
+      nodes:
+        - host: zookeeper
+          port: {{ .Values.zookeeper.service.ports.client }}
+    {{- end }}
     clusters:
       - name: {{ .Values.clickhouse.clusterName }}
         layout:
