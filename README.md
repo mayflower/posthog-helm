@@ -16,18 +16,18 @@ The default PostHog image tag is pinned to the local source snapshot `696b444135
 Dependencies are vendored as unpacked chart directories because Helm 4 linting expects directories, while `helm dependency update` writes archives.
 
 ```bash
-helm lint --strict ./posthog
-helm template posthog ./posthog > /tmp/posthog.yaml
-helm template posthog ./posthog -f ./posthog/examples/external-values.yaml > /tmp/posthog-external.yaml
-helm template posthog ./posthog -f ./posthog/examples/full-compose-values.yaml > /tmp/posthog-full.yaml
+helm lint --strict .
+helm template posthog . > /tmp/posthog.yaml
+helm template posthog . -f ./examples/external-values.yaml > /tmp/posthog-external.yaml
+helm template posthog . -f ./examples/full-compose-values.yaml > /tmp/posthog-full.yaml
 ```
 
 To refresh dependencies:
 
 ```bash
-helm dependency update ./posthog
-for archive in ./posthog/charts/*.tgz; do tar -xzf "$archive" -C ./posthog/charts; done
-rm ./posthog/charts/*.tgz
+helm dependency update .
+for archive in ./charts/*.tgz; do tar -xzf "$archive" -C ./charts; done
+rm ./charts/*.tgz
 ```
 
 ## Runtime Secrets
