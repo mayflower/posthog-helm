@@ -566,7 +566,7 @@ components:
     env:
       ADDRESS: 0.0.0.0:3001
       RUST_LOG: info
-      MAXMIND_DB_PATH: /share/GeoLite2-City.mmdb
+      MAXMIND_DB_PATH: /app/share/GeoLite2-City.mmdb
       COOKIELESS_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
       COOKIELESS_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
     probes:
@@ -672,7 +672,7 @@ components:
       BIND_HOST: 0.0.0.0
       BIND_PORT: "3302"
       PERSONS_URL: "{{ include \"posthog.postgresUrl\" . }}"
-      MAXMIND_DB_PATH: /share/GeoLite2-City.mmdb
+      MAXMIND_DB_PATH: /app/share/GeoLite2-City.mmdb
       ISSUE_BUCKETS_REDIS_URL: "{{ include \"posthog.redisUrl\" . }}"
       RUST_LOG: info
   migrate:
