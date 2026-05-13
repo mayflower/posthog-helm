@@ -382,8 +382,6 @@ components:
     image: app
     replicas: 1
     command: ["./bin/temporal-django-worker"]
-    env:
-      TEMPORAL_HOST: "{{ include \"posthog.temporalHost\" . }}"
   plugins:
     enabled: true
     kind: Deployment
@@ -670,7 +668,6 @@ components:
       enabled: true
     env:
       OBJECT_STORAGE_BUCKET: posthog
-      OBJECT_STORAGE_ENDPOINT: "{{ include \"posthog.sessionRecordingEndpoint\" . }}"
       OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       BIND_HOST: 0.0.0.0
       BIND_PORT: "3302"
