@@ -27,7 +27,7 @@ Install from the GitHub Container Registry after a chart version has been publis
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.0 \
+  --version 0.2.5 \
   --namespace posthog \
   --create-namespace \
   --set global.domain=posthog.example.com \

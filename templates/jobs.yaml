@@ -14,10 +14,15 @@ metadata:
   labels:
     {{- include "posthog.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
-  {{- with $component.hook }}
+  {{- if or $component.hook $component.annotations }}
   annotations:
+    {{- with $component.hook }}
     helm.sh/hook: {{ . | quote }}
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- end }}
+    {{- with $component.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   {{- end }}
 spec:
   backoffLimit: {{ default 3 $component.backoffLimit }}

@@ -2,7 +2,7 @@ apiVersion: v2
 name: posthog
 description: Current Helm chart for the PostHog Kubernetes service topology.
 type: application
-version: 0.2.4
+version: 0.2.5
 appVersion: "master"
 kubeVersion: ">=1.28.0-0"
 home: https://posthog.com

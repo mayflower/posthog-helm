@@ -318,6 +318,7 @@ components:
     kind: Deployment
     image: app
     replicas: 1
+    command: ["./bin/docker-server"]
     ports:
       - name: http
         containerPort: 8000
@@ -412,8 +413,6 @@ components:
     command: ["node", "nodejs/dist/index.js"]
     env:
       PLUGIN_SERVER_MODE: ingestion-v2-combined
-      COOKIELESS_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
-      COOKIELESS_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
   ingestionSessionReplay:
     enabled: true
@@ -438,7 +437,7 @@ components:
       enabled: true
     env:
       PLUGIN_SERVER_MODE: recording-api
-      SESSION_RECORDING_API_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      SESSION_RECORDING_API_REDIS_HOST: "{{ include \"posthog.redisUrl\" . }}"
       SESSION_RECORDING_API_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
   ingestionErrorTracking:
     enabled: true
@@ -678,13 +677,7 @@ components:
     kind: Job
     image: app
     hook: pre-install,pre-upgrade
-    command: ["/bin/sh", "-c"]
-    args:
-      - |
-        set -e
-        python manage.py migrate
-        python manage.py migrate_clickhouse
-        python manage.py run_async_migrations
+    command: ["./bin/migrate"]
   asyncMigrationsCheck:
     enabled: true
     kind: Job
