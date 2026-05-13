@@ -135,6 +135,10 @@ When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_
 
 The `kafkaInit` hook creates the topics PostHog services expect before migrations and workloads start. The default list is exposed as `kafka.topics`; override it when you run with a custom PostHog Kafka prefix or a broker policy that manages topics separately.
 
+## ClickHouse
+
+The bundled ClickHouse profile grants the PostHog `app` user full ClickHouse privileges because PostHog migrations create databases, replicated tables, Kafka-engine tables, dictionaries, materialized views, and named-collection based Kafka engines. When you use an external ClickHouse service, provision the configured `external.clickhouse.user` with equivalent migration privileges before installing the chart.
+
 ## Routing
 
 Ingress and the optional Caddy proxy are generated from `routing.routes`. Add or change public paths there so both surfaces stay aligned.
