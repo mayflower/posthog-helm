@@ -9,7 +9,7 @@ The PostHog-owned runtime images follow the upstream container defaults and use 
 ## Profiles
 
 - `profile.mode=bundled` deploys PostHog plus bundled backing services through maintained subcharts where practical.
-- `profile.mode=external` deploys PostHog workloads and requires managed Postgres, Redis, Kafka/Redpanda, ClickHouse, object storage, session recording storage, and Temporal endpoints.
+- `profile.mode=external` deploys PostHog workloads and uses managed dependencies where configured. Kafka can still use the bundled Redpanda subchart by leaving `external.kafka.hosts` empty and enabling `subcharts.redpanda.enabled`.
 
 ## Install
 
@@ -27,7 +27,7 @@ Install from the GitHub Container Registry after a chart version has been publis
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.6 \
+  --version 0.2.7 \
   --namespace posthog \
   --create-namespace \
   --set global.domain=posthog.example.com \

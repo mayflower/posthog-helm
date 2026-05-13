@@ -251,10 +251,12 @@ redis-password
 {{- end -}}
 
 {{- define "posthog.kafkaHosts" -}}
-{{- if eq .Values.profile.mode "external" -}}
-{{- required "external.kafka.hosts is required in external mode" .Values.external.kafka.hosts -}}
-{{- else -}}
+{{- if .Values.external.kafka.hosts -}}
+{{- .Values.external.kafka.hosts -}}
+{{- else if .Values.internal.kafka.hosts -}}
 {{- .Values.internal.kafka.hosts -}}
+{{- else -}}
+{{- fail "either external.kafka.hosts or internal.kafka.hosts is required" -}}
 {{- end -}}
 {{- end -}}
 
@@ -322,6 +324,10 @@ redis-password
   value: {{ .Values.global.siteUrl | quote }}
 - name: DEPLOYMENT
   value: {{ .Values.global.deployment | quote }}
+- name: HOME
+  value: /tmp
+- name: MPLCONFIGDIR
+  value: /tmp/matplotlib
 {{- if and (eq .Values.profile.mode "external") .Values.external.postgres.passwordSecret.name }}
 - name: POSTGRES_PASSWORD
   valueFrom:

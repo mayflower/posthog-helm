@@ -264,8 +264,7 @@
               },
               "kafka": {
                 "type": "object",
-                "properties": { "hosts": { "$ref": "#/$defs/nonEmptyString" } },
-                "required": ["hosts"]
+                "properties": { "hosts": { "type": "string" } }
               },
               "clickhouse": {
                 "type": "object",
@@ -312,7 +311,7 @@
                 }
               }
             },
-            "required": ["postgres", "redis", "kafka", "clickhouse", "objectStorage", "sessionRecording", "temporal"]
+            "required": ["postgres", "redis", "clickhouse", "objectStorage", "sessionRecording", "temporal"]
           }
         },
         "required": ["external"]

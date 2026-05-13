@@ -77,6 +77,9 @@ images:
   livestream:
     repository: ghcr.io/posthog/posthog/livestream
     tag: master
+  cyclotronJanitor:
+    repository: ghcr.io/posthog/posthog/cyclotron-janitor
+    tag: master
   cymbal:
     repository: ghcr.io/posthog/posthog/cymbal
     tag: master
@@ -648,13 +651,13 @@ components:
     service:
       enabled: true
     env:
+      LIVESTREAM_MMDB_PATH: /GeoLite2-City.mmdb
       LIVESTREAM_JWT_SECRET: ""
   cyclotronJanitor:
     enabled: true
     kind: Deployment
-    image: app
+    image: cyclotronJanitor
     replicas: 1
-    command: ["./bin/cyclotron-janitor"]
     env:
       KAFKA_TOPIC: clickhouse_app_metrics2
   cymbal:
