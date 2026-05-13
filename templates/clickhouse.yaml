@@ -39,6 +39,17 @@ spec:
       kafka_hosts: {{ tpl .Values.clickhouse.config.kafkaHosts . | quote }}
       macros/hostClusterType: {{ .Values.clickhouse.macros.hostClusterType | quote }}
       macros/hostClusterRole: {{ .Values.clickhouse.macros.hostClusterRole | quote }}
+    files:
+      config.d/posthog_named_collections.xml: |
+        <clickhouse>
+          <named_collections>
+          {{- range .Values.clickhouse.namedCollections }}
+            <{{ . }}>
+              <kafka_broker_list>{{ tpl $.Values.clickhouse.config.kafkaHosts $ }}</kafka_broker_list>
+            </{{ . }}>
+          {{- end }}
+          </named_collections>
+        </clickhouse>
   defaults:
     templates:
       podTemplate: clickhouse

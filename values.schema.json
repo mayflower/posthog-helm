@@ -158,6 +158,10 @@
         "replicas": { "type": "integer", "minimum": 1 },
         "storage": { "$ref": "#/$defs/nonEmptyString" },
         "satelliteClusters": { "type": "string" },
+        "namedCollections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
         "macros": {
           "type": "object",
           "additionalProperties": false,

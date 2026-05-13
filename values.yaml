@@ -1089,6 +1089,11 @@ clickhouse:
   replicas: 1
   storage: 50Gi
   satelliteClusters: ""
+  namedCollections:
+    - msk_cluster
+    - warpstream_ingestion
+    - warpstream_calculated_events
+    - warpstream_replay
   macros:
     hostClusterType: online
     hostClusterRole: data
