@@ -36,9 +36,15 @@ spec:
         {{- with $root.Values.global.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- with $component.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         checksum/secrets: {{ include (print $.Template.BasePath "/secrets.yaml") $root | sha256sum }}
         {{- with $root.Values.global.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $component.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:

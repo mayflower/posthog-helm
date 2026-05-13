@@ -83,10 +83,19 @@ External mode can use separate provider-managed secrets for service credentials:
 external:
   postgres:
     host: postgres.example.com
+    port: 5432
     database: posthog
     user: posthog
+    sslMode: require
     passwordSecret:
       name: posthog-postgres
+      key: password
+  redis:
+    host: redis.example.com
+    port: 6379
+    database: 0
+    passwordSecret:
+      name: posthog-redis
       key: password
   clickhouse:
     passwordSecret:
@@ -108,7 +117,7 @@ external:
       key: secret-key
 ```
 
-When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_URL` from host/user/database and injects `POSTGRES_PASSWORD` from that secret. This avoids putting database passwords in values files.
+When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_URL` from host/user/database, appends `sslmode`/`params`, and injects `POSTGRES_PASSWORD` from that secret. When `external.redis.passwordSecret.name` is set, the chart injects `REDIS_PASSWORD` and builds Redis URLs with Kubernetes env expansion. This avoids putting service passwords in values files.
 
 ## Routing
 
@@ -123,3 +132,6 @@ All workload components support the shared scheduling and availability controls:
 - Per-component `autoscaling` creates an `autoscaling/v2` HPA.
 - Per-component `pdb` creates a `policy/v1` PodDisruptionBudget.
 - Stateful component `persistence` supports `size`, `storageClass`, and `accessModes`.
+- `monitoring.serviceMonitor.enabled` creates Prometheus Operator `ServiceMonitor` resources for component ports named in `monitoring.serviceMonitor.portNames`.
+
+Internal component URLs are generated from Helm release-aware service names. Do not hardcode short Docker Compose service names such as `plugins` or `recording-api` in production overrides; use the `posthog.serviceHost`, `posthog.serviceUrl`, and `posthog.temporalAddress` helpers when adding new component env vars.

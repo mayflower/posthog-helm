@@ -1,4 +1,4 @@
-{{- if and .Values.clickhouse.enabled (eq .Values.profile.mode "bundled") -}}
+{{- if .Values.clickhouse.enabled -}}
 apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
 metadata:

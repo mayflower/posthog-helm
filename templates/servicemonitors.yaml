@@ -1,0 +1,59 @@
+{{- if .Values.monitoring.serviceMonitor.enabled -}}
+{{- $root := . -}}
+{{- $monitor := .Values.monitoring.serviceMonitor -}}
+{{- range $name, $component := .Values.components }}
+{{- $service := default dict $component.service -}}
+{{- $ports := default list $component.ports -}}
+{{- if and $component.enabled $service.enabled $ports }}
+{{- $endpoints := list -}}
+{{- range $ports }}
+{{- if has .name $monitor.portNames }}
+{{- $endpoints = append $endpoints .name -}}
+{{- end }}
+{{- end }}
+{{- if $endpoints }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  {{- with $monitor.namespace }}
+  namespace: {{ . | quote }}
+  {{- end }}
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+    {{- with $monitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if $monitor.namespace }}
+  namespaceSelector:
+    matchNames:
+      - {{ $root.Release.Namespace | quote }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 6 }}
+  endpoints:
+    {{- range $endpoints }}
+    - port: {{ . }}
+      interval: {{ $monitor.interval | quote }}
+      scrapeTimeout: {{ $monitor.scrapeTimeout | quote }}
+      {{- with $monitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

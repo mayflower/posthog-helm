@@ -18,6 +18,15 @@
 {{- printf "%s-%s" (include "posthog.fullname" .root) (include "posthog.componentName" .name) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "posthog.serviceHost" -}}
+{{- include "posthog.componentFullname" (dict "root" .root "name" .name) -}}
+{{- end -}}
+
+{{- define "posthog.serviceUrl" -}}
+{{- $scheme := default "http" .scheme -}}
+{{- printf "%s://%s:%v" $scheme (include "posthog.serviceHost" (dict "root" .root "name" .name)) .port -}}
+{{- end -}}
+
 {{- define "posthog.labels" -}}
 app.kubernetes.io/name: {{ include "posthog.name" . }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
@@ -59,6 +68,22 @@ app.kubernetes.io/component: {{ include "posthog.componentName" .name }}
 {{- .Values.external.postgres.passwordSecret.key -}}
 {{- else -}}
 postgres-password
+{{- end -}}
+{{- end -}}
+
+{{- define "posthog.redisPasswordSecretName" -}}
+{{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name -}}
+{{- .Values.external.redis.passwordSecret.name -}}
+{{- else -}}
+{{- include "posthog.secretName" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "posthog.redisPasswordSecretKey" -}}
+{{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name -}}
+{{- .Values.external.redis.passwordSecret.key -}}
+{{- else -}}
+redis-password
 {{- end -}}
 {{- end -}}
 
@@ -156,29 +181,46 @@ postgres-password
 
 {{- define "posthog.postgresHost" -}}
 {{- if eq .Values.profile.mode "external" -}}
-{{- required "external.postgres.host is required in external mode unless external.postgres.url is set" .Values.external.postgres.host -}}
+{{- required "external.postgres.host is required in external mode" .Values.external.postgres.host -}}
 {{- else -}}
-{{- .Values.internal.postgres.host -}}
+{{- tpl .Values.internal.postgres.host . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "posthog.postgresUrlQuery" -}}
+{{- $params := dict -}}
+{{- if .Values.external.postgres.sslMode -}}
+{{- $_ := set $params "sslmode" .Values.external.postgres.sslMode -}}
+{{- end -}}
+{{- range $key, $value := .Values.external.postgres.params -}}
+{{- $_ := set $params $key $value -}}
+{{- end -}}
+{{- if $params -}}
+{{- $pairs := list -}}
+{{- range $key, $value := $params -}}
+{{- $pairs = append $pairs (printf "%s=%s" $key (toString $value | urlquery)) -}}
+{{- end -}}
+{{- printf "?%s" (join "&" $pairs) -}}
 {{- end -}}
 {{- end -}}
 
 {{- define "posthog.postgresUrl" -}}
 {{- if eq .Values.profile.mode "external" -}}
 {{- if .Values.external.postgres.passwordSecret.name -}}
-{{- printf "postgres://%s:$(POSTGRES_PASSWORD)@%s:%v/%s" .Values.external.postgres.user (required "external.postgres.host is required when using external.postgres.passwordSecret" .Values.external.postgres.host) .Values.external.postgres.port .Values.external.postgres.database -}}
+{{- printf "postgres://%s:$(POSTGRES_PASSWORD)@%s:%v/%s%s" .Values.external.postgres.user (required "external.postgres.host is required when using external.postgres.passwordSecret" .Values.external.postgres.host) .Values.external.postgres.port .Values.external.postgres.database (include "posthog.postgresUrlQuery" .) -}}
 {{- else -}}
 {{- required "external.postgres.url is required in external mode unless external.postgres.passwordSecret.name is set" .Values.external.postgres.url -}}
 {{- end -}}
 {{- else -}}
-{{- printf "postgres://%s:%s@%s:%v/%s" .Values.internal.postgres.user .Values.internal.postgres.password .Values.internal.postgres.host .Values.internal.postgres.port .Values.internal.postgres.database -}}
+{{- printf "postgres://%s:%s@%s:%v/%s" .Values.internal.postgres.user .Values.internal.postgres.password (tpl .Values.internal.postgres.host .) .Values.internal.postgres.port .Values.internal.postgres.database -}}
 {{- end -}}
 {{- end -}}
 
 {{- define "posthog.redisHost" -}}
 {{- if eq .Values.profile.mode "external" -}}
-{{- required "external.redis.host is required in external mode unless external.redis.url is set" .Values.external.redis.host -}}
+{{- required "external.redis.host is required in external mode" .Values.external.redis.host -}}
 {{- else -}}
-{{- .Values.internal.redis.host -}}
+{{- tpl .Values.internal.redis.host . -}}
 {{- end -}}
 {{- end -}}
 
@@ -186,11 +228,25 @@ postgres-password
 {{- if eq .Values.profile.mode "external" -}}{{ .Values.external.redis.port }}{{- else -}}{{ .Values.internal.redis.port }}{{- end -}}
 {{- end -}}
 
+{{- define "posthog.redisDatabase" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ default 0 .Values.external.redis.database }}{{- else -}}{{ default 0 .Values.internal.redis.database }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.redisPasswordEnv" -}}
+{{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name -}}$(REDIS_PASSWORD){{- end -}}
+{{- end -}}
+
 {{- define "posthog.redisUrl" -}}
 {{- if eq .Values.profile.mode "external" -}}
-{{- required "external.redis.url is required in external mode" .Values.external.redis.url -}}
+{{- if .Values.external.redis.url -}}
+{{- .Values.external.redis.url -}}
+{{- else if .Values.external.redis.passwordSecret.name -}}
+{{- printf "redis://:$(REDIS_PASSWORD)@%s:%v/%v" (required "external.redis.host is required when using external.redis.passwordSecret" .Values.external.redis.host) .Values.external.redis.port (default 0 .Values.external.redis.database) -}}
 {{- else -}}
-{{- printf "redis://%s:%v/" .Values.internal.redis.host .Values.internal.redis.port -}}
+{{- printf "redis://%s:%v/%v" (required "external.redis.host is required in external mode" .Values.external.redis.host) .Values.external.redis.port (default 0 .Values.external.redis.database) -}}
+{{- end -}}
+{{- else -}}
+{{- printf "redis://%s:%v/%v" (tpl .Values.internal.redis.host .) .Values.internal.redis.port (default 0 .Values.internal.redis.database) -}}
 {{- end -}}
 {{- end -}}
 
@@ -239,7 +295,26 @@ postgres-password
 {{- end -}}
 
 {{- define "posthog.temporalHost" -}}
-{{- if eq .Values.profile.mode "external" -}}{{ required "external.temporal.host is required in external mode" .Values.external.temporal.host }}{{- else -}}{{ .Values.internal.temporal.host }}{{- end -}}
+{{- if eq .Values.profile.mode "external" -}}{{ tpl (required "external.temporal.host is required in external mode" .Values.external.temporal.host) . }}{{- else -}}{{ tpl .Values.internal.temporal.host . }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.temporalPort" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ default 7233 .Values.external.temporal.port }}{{- else -}}{{ default 7233 .Values.internal.temporal.port }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.temporalAddress" -}}
+{{- printf "%s:%v" (include "posthog.temporalHost" .) (include "posthog.temporalPort" .) -}}
+{{- end -}}
+
+{{- define "posthog.opensearchHost" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ .Values.external.opensearch.host }}{{- else -}}{{ tpl .Values.internal.opensearch.host . }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.opensearchUrl" -}}
+{{- $host := include "posthog.opensearchHost" . -}}
+{{- if $host -}}
+{{- if hasPrefix "http" $host -}}{{ $host }}{{- else -}}{{ printf "http://%s" $host }}{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "posthog.commonEnv" -}}
@@ -253,6 +328,13 @@ postgres-password
     secretKeyRef:
       name: {{ include "posthog.postgresPasswordSecretName" . }}
       key: {{ include "posthog.postgresPasswordSecretKey" . }}
+{{- end }}
+{{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.redisPasswordSecretName" . }}
+      key: {{ include "posthog.redisPasswordSecretKey" . }}
 {{- end }}
 - name: SECRET_KEY
   valueFrom:
@@ -274,8 +356,32 @@ postgres-password
   value: {{ include "posthog.postgresHost" . | quote }}
 - name: REDIS_URL
   value: {{ include "posthog.redisUrl" . | quote }}
+- name: POSTHOG_REDIS_HOST
+  value: {{ include "posthog.redisHost" . | quote }}
+- name: POSTHOG_REDIS_PORT
+  value: {{ include "posthog.redisPort" . | quote }}
+{{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name }}
+- name: POSTHOG_REDIS_PASSWORD
+  value: "$(REDIS_PASSWORD)"
+- name: CDP_REDIS_PASSWORD
+  value: "$(REDIS_PASSWORD)"
+- name: LOGS_REDIS_PASSWORD
+  value: "$(REDIS_PASSWORD)"
+- name: TRACES_REDIS_PASSWORD
+  value: "$(REDIS_PASSWORD)"
+{{- end }}
 - name: KAFKA_HOSTS
   value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: TEMPORAL_HOST
+  value: {{ include "posthog.temporalHost" . | quote }}
+- name: TEMPORAL_PORT
+  value: {{ include "posthog.temporalPort" . | quote }}
+{{- with (include "posthog.opensearchUrl" .) }}
+- name: OPENSEARCH_URL
+  value: {{ . | quote }}
+- name: OPENSEARCH_HOSTS
+  value: {{ . | quote }}
+{{- end }}
 - name: CLICKHOUSE_HOST
   value: {{ include "posthog.clickhouseHost" . | quote }}
 - name: CLICKHOUSE_DATABASE

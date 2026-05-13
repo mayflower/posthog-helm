@@ -211,10 +211,19 @@
                   "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
                   "database": { "type": "string" },
                   "user": { "type": "string" },
+                  "sslMode": { "type": "string" },
+                  "params": { "type": "object" },
                   "passwordSecret": { "$ref": "#/$defs/secretRef" }
                 },
-                "oneOf": [
-                  { "required": ["url"], "properties": { "url": { "$ref": "#/$defs/nonEmptyString" } } },
+                "required": ["host"],
+                "anyOf": [
+                  {
+                    "required": ["url", "host"],
+                    "properties": {
+                      "url": { "$ref": "#/$defs/nonEmptyString" },
+                      "host": { "$ref": "#/$defs/nonEmptyString" }
+                    }
+                  },
                   {
                     "required": ["host", "database", "user", "passwordSecret"],
                     "properties": {
@@ -228,8 +237,30 @@
               },
               "redis": {
                 "type": "object",
-                "properties": { "url": { "$ref": "#/$defs/nonEmptyString" } },
-                "required": ["url"]
+                "additionalProperties": true,
+                "properties": {
+                  "url": { "type": "string" },
+                  "host": { "type": "string" },
+                  "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                  "database": { "type": "integer", "minimum": 0 },
+                  "passwordSecret": { "$ref": "#/$defs/secretRef" }
+                },
+                "required": ["host"],
+                "anyOf": [
+                  {
+                    "required": ["url", "host"],
+                    "properties": {
+                      "url": { "$ref": "#/$defs/nonEmptyString" },
+                      "host": { "$ref": "#/$defs/nonEmptyString" }
+                    }
+                  },
+                  {
+                    "required": ["host"],
+                    "properties": {
+                      "host": { "$ref": "#/$defs/nonEmptyString" }
+                    }
+                  }
+                ]
               },
               "kafka": {
                 "type": "object",
@@ -267,8 +298,18 @@
               },
               "temporal": {
                 "type": "object",
-                "properties": { "host": { "$ref": "#/$defs/nonEmptyString" } },
+                "properties": {
+                  "host": { "$ref": "#/$defs/nonEmptyString" },
+                  "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+                },
                 "required": ["host"]
+              },
+              "opensearch": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "host": { "type": "string" }
+                }
               }
             },
             "required": ["postgres", "redis", "kafka", "clickhouse", "objectStorage", "sessionRecording", "temporal"]

@@ -31,12 +31,17 @@ external:
     port: 5432
     database: posthog
     user: posthog
+    sslMode: require
     passwordSecret:
       name: posthog-postgres
       key: password
   redis:
-    url: redis://redis.example.com:6379/
     host: redis.example.com
+    port: 6379
+    database: 0
+    passwordSecret:
+      name: posthog-redis
+      key: password
   kafka:
     hosts: redpanda.example.com:9092
   clickhouse:
@@ -68,6 +73,7 @@ external:
       name: posthog-session-recording
       key: secret-key
   temporal:
-    host: temporal.example.com:7233
+    host: temporal.example.com
+    port: 7233
   opensearch:
     host: opensearch.example.com:9200

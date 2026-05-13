@@ -27,7 +27,7 @@ spec:
             pathType: {{ default "Prefix" .pathType }}
             backend:
               service:
-                name: {{ include "posthog.fullname" $ }}-{{ .service }}
+                name: {{ include "posthog.serviceHost" (dict "root" $ "name" .service) }}
                 port:
                   number: {{ .port }}
           {{- end }}

@@ -10,14 +10,14 @@ data:
       {{- range .Values.routing.routes }}
       {{- if eq .path "/" }}
       handle {
-        reverse_proxy {{ include "posthog.fullname" $ }}-{{ .service }}:{{ .port }}
+        reverse_proxy {{ include "posthog.serviceHost" (dict "root" $ "name" .service) }}:{{ .port }}
       }
       {{- else }}
       handle {{ .path }}* {
         {{- if .stripPrefix }}
         uri strip_prefix {{ .path }}
         {{- end }}
-        reverse_proxy {{ include "posthog.fullname" $ }}-{{ .service }}:{{ .port }}
+        reverse_proxy {{ include "posthog.serviceHost" (dict "root" $ "name" .service) }}:{{ .port }}
       }
       {{- end }}
       {{- end }}

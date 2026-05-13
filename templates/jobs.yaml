@@ -31,9 +31,17 @@ spec:
         {{- with $root.Values.global.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with $root.Values.global.podAnnotations }}
-      annotations:
+        {{- with $component.podLabels }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or $root.Values.global.podAnnotations $component.podAnnotations }}
+      annotations:
+        {{- with $root.Values.global.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $component.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       restartPolicy: Never
