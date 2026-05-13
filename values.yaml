@@ -1040,10 +1040,16 @@ minio:
 
 redpanda:
   fullnameOverride: kafka
+  external:
+    enabled: false
+    service:
+      enabled: false
   console:
     enabled: false
   statefulset:
     replicas: 1
+  tls:
+    enabled: false
   listeners:
     kafka:
       port: 9092
