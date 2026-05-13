@@ -1170,7 +1170,13 @@ redpanda:
 
 zookeeper:
   enabled: true
+  global:
+    security:
+      allowInsecureImages: true
   fullnameOverride: zookeeper
+  image:
+    repository: bitnamilegacy/zookeeper
+    tag: "3.9"
   replicaCount: 1
   persistence:
     enabled: true
