@@ -319,6 +319,11 @@ components:
     image: app
     replicas: 1
     command: ["./bin/docker-server"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+        add: ["SETGID", "SETUID"]
     ports:
       - name: http
         containerPort: 8000
