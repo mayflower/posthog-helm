@@ -372,6 +372,26 @@ redis-password
 {{- end }}
 - name: KAFKA_HOSTS
   value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_CONSUMER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_DEFAULT_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_WARPSTREAM_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_WARPSTREAM_LOGS_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_WAREHOUSE_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_WARPSTREAM_CALCULATED_EVENTS_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST
+  value: {{ include "posthog.kafkaHosts" . | quote }}
 - name: TEMPORAL_HOST
   value: {{ include "posthog.temporalHost" . | quote }}
 - name: TEMPORAL_PORT

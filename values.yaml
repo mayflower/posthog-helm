@@ -318,8 +318,6 @@ components:
     kind: Deployment
     image: app
     replicas: 1
-    command: ["/bin/sh", "-c"]
-    args: ["./bin/start-backend & ./bin/start-frontend"]
     ports:
       - name: http
         containerPort: 8000
