@@ -1,0 +1,105 @@
+name: Publish Helm chart
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-chart.yml
+      - .helmignore
+      - Chart.lock
+      - Chart.yaml
+      - charts/**
+      - examples/**
+      - templates/**
+      - values.schema.json
+      - values.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Package and publish chart
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: |
+          helm lint --strict .
+          helm lint --strict . -f examples/external-values.yaml
+
+      - name: Read chart metadata
+        id: chart
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chart_name="$(awk -F': *' '$1 == "name" { print $2; exit }' Chart.yaml | tr -d '"')"
+          chart_version="$(awk -F': *' '$1 == "version" { print $2; exit }' Chart.yaml | tr -d '"')"
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          repository_name="$(printf '%s' "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+
+          echo "name=${chart_name}" >> "$GITHUB_OUTPUT"
+          echo "version=${chart_version}" >> "$GITHUB_OUTPUT"
+          echo "repository=oci://ghcr.io/${owner}/${repository_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Skip existing chart version
+        id: existing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chart_ref="${{ steps.chart.outputs.repository }}/${{ steps.chart.outputs.name }}"
+          chart_version="${{ steps.chart.outputs.version }}"
+
+          if helm show chart "${chart_ref}" --version "${chart_version}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Chart ${chart_ref}:${chart_version} already exists; skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package chart
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          mkdir -p dist
+          helm package . --destination dist
+
+      - name: Publish chart
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          helm push \
+            "dist/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz" \
+            "${{ steps.chart.outputs.repository }}"
+
+      - name: Write summary
+        run: |
+          chart_ref="${{ steps.chart.outputs.repository }}/${{ steps.chart.outputs.name }}"
+          chart_version="${{ steps.chart.outputs.version }}"
+
+          {
+            echo "## Helm chart"
+            echo
+            echo "- Chart: \`${chart_ref}\`"
+            echo "- Version: \`${chart_version}\`"
+            echo "- Existing version skipped: \`${{ steps.existing.outputs.exists }}\`"
+            echo
+            echo "\`\`\`bash"
+            echo "helm install posthog ${chart_ref} --version ${chart_version}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"

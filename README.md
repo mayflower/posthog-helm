@@ -23,6 +23,17 @@ helm upgrade --install posthog . \
   --set global.siteUrl=https://posthog.example.com
 ```
 
+Install from the GitHub Container Registry after a chart version has been published:
+
+```bash
+helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
+  --version 0.2.0 \
+  --namespace posthog \
+  --create-namespace \
+  --set global.domain=posthog.example.com \
+  --set global.siteUrl=https://posthog.example.com
+```
+
 For production, use external backing services and provide runtime secrets before installing:
 
 ```bash
