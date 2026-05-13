@@ -1,0 +1,73 @@
+profile:
+  mode: external
+
+postgresql:
+  enabled: false
+redis:
+  enabled: false
+minio:
+  enabled: false
+subcharts:
+  redpanda:
+    enabled: false
+zookeeper:
+  enabled: false
+clickhouse:
+  enabled: false
+  operator:
+    enabled: false
+
+global:
+  domain: posthog.example.com
+  siteUrl: https://posthog.example.com
+
+secrets:
+  create: false
+  existingSecret: posthog-runtime-secrets
+
+external:
+  postgres:
+    host: postgres.example.com
+    port: 5432
+    database: posthog
+    user: posthog
+    passwordSecret:
+      name: posthog-postgres
+      key: password
+  redis:
+    url: redis://redis.example.com:6379/
+    host: redis.example.com
+  kafka:
+    hosts: redpanda.example.com:9092
+  clickhouse:
+    host: clickhouse.example.com
+    database: posthog
+    user: app
+    secure: "true"
+    verify: "true"
+    passwordSecret:
+      name: posthog-clickhouse
+      key: password
+  objectStorage:
+    endpoint: https://s3.example.com
+    publicEndpoint: https://posthog.example.com
+    bucket: posthog
+    region: us-east-1
+    accessKeySecret:
+      name: posthog-object-storage
+      key: access-key
+    secretKeySecret:
+      name: posthog-object-storage
+      key: secret-key
+  sessionRecording:
+    endpoint: https://session-recordings.example.com
+    accessKeySecret:
+      name: posthog-session-recording
+      key: access-key
+    secretKeySecret:
+      name: posthog-session-recording
+      key: secret-key
+  temporal:
+    host: temporal.example.com:7233
+  opensearch:
+    host: opensearch.example.com:9200

@@ -1,0 +1,56 @@
+apiVersion: v2
+name: posthog
+description: Current Helm chart for the PostHog compose-era service topology.
+type: application
+version: 0.1.0
+appVersion: "696b444135bb"
+kubeVersion: ">=1.28.0-0"
+home: https://posthog.com
+sources:
+  - https://github.com/PostHog/posthog
+  - https://github.com/PostHog/charts-clickhouse
+dependencies:
+  - name: postgresql
+    version: 18.6.4
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: 25.5.3
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: minio
+    version: 17.0.21
+    repository: https://charts.bitnami.com/bitnami
+    condition: minio.enabled
+  - name: redpanda
+    version: 26.1.3
+    repository: https://charts.redpanda.com
+    condition: subcharts.redpanda.enabled
+  - name: zookeeper
+    version: 13.8.7
+    repository: https://charts.bitnami.com/bitnami
+    condition: zookeeper.enabled
+  - name: altinity-clickhouse-operator
+    version: 0.27.0
+    repository: https://docs.altinity.com/clickhouse-operator
+    condition: clickhouse.operator.enabled
+  - name: grafana
+    version: 10.5.15
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled
+  - name: loki
+    version: 7.0.0
+    repository: https://grafana.github.io/helm-charts
+    condition: loki.enabled
+  - name: promtail
+    version: 6.17.1
+    repository: https://grafana.github.io/helm-charts
+    condition: promtail.enabled
+  - name: prometheus
+    version: 29.6.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus.enabled
+  - name: cert-manager
+    version: v1.20.2
+    repository: https://charts.jetstack.io
+    condition: cert-manager.enabled

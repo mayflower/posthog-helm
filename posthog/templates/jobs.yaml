@@ -1,0 +1,90 @@
+{{- $root := . -}}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled (eq $component.kind "Job") }}
+{{- $nodeSelector := default $root.Values.global.nodeSelector $component.nodeSelector -}}
+{{- $affinity := default $root.Values.global.affinity $component.affinity -}}
+{{- $tolerations := default $root.Values.global.tolerations $component.tolerations -}}
+{{- $topologySpreadConstraints := default $root.Values.global.topologySpreadConstraints $component.topologySpreadConstraints -}}
+{{- $priorityClassName := default $root.Values.global.priorityClassName $component.priorityClassName -}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+  {{- with $component.hook }}
+  annotations:
+    helm.sh/hook: {{ . | quote }}
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- end }}
+spec:
+  backoffLimit: {{ default 3 $component.backoffLimit }}
+  {{- with $component.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 8 }}
+        {{- with $root.Values.global.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $root.Values.global.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "posthog.serviceAccountName" $root }}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $priorityClassName }}
+      priorityClassName: {{ $priorityClassName | quote }}
+      {{- end }}
+      {{- with (default $root.Values.defaultPodSecurityContext $component.podSecurityContext) }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "posthog.componentName" $name }}
+          image: {{ include "posthog.image" (dict "root" $root "image" $component.image) }}
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          {{- with $component.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $component.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- include "posthog.commonEnv" $root | nindent 12 }}
+            {{- include "posthog.renderEnvMap" (dict "root" $root "env" (default dict $component.env)) | nindent 12 }}
+          {{- with (default $root.Values.defaultSecurityContext $component.securityContext) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml (default $root.Values.defaultResources $component.resources) | nindent 12 }}
+{{ end }}
+{{- end }}

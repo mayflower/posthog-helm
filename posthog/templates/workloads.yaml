@@ -1,0 +1,153 @@
+{{- $root := . -}}
+{{- range $name, $component := .Values.components }}
+{{- if and $component.enabled (or (eq $component.kind "Deployment") (eq $component.kind "StatefulSet")) }}
+{{- $persistence := default dict $component.persistence -}}
+{{- $configMounts := default list $component.configMounts -}}
+{{- $ports := default list $component.ports -}}
+{{- $probes := default dict $component.probes -}}
+{{- $autoscaling := default dict $component.autoscaling -}}
+{{- $nodeSelector := default $root.Values.global.nodeSelector $component.nodeSelector -}}
+{{- $affinity := default $root.Values.global.affinity $component.affinity -}}
+{{- $tolerations := default $root.Values.global.tolerations $component.tolerations -}}
+{{- $topologySpreadConstraints := default $root.Values.global.topologySpreadConstraints $component.topologySpreadConstraints -}}
+{{- $priorityClassName := default $root.Values.global.priorityClassName $component.priorityClassName -}}
+---
+apiVersion: apps/v1
+kind: {{ $component.kind }}
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+spec:
+  {{- if eq $component.kind "StatefulSet" }}
+  serviceName: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  {{- end }}
+  {{- if not $autoscaling.enabled }}
+  replicas: {{ default 1 $component.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 8 }}
+        {{- with $root.Values.global.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/secrets: {{ include (print $.Template.BasePath "/secrets.yaml") $root | sha256sum }}
+        {{- with $root.Values.global.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "posthog.serviceAccountName" $root }}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $priorityClassName }}
+      priorityClassName: {{ $priorityClassName | quote }}
+      {{- end }}
+      {{- with (default $root.Values.defaultPodSecurityContext $component.podSecurityContext) }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "posthog.componentName" $name }}
+          image: {{ include "posthog.image" (dict "root" $root "image" $component.image) }}
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          {{ with $component.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{ end }}
+          {{ with $component.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{ end }}
+          {{ with $ports }}
+          ports:
+            {{- range . }}
+            - name: {{ .name }}
+              containerPort: {{ .containerPort }}
+            {{- end }}
+          {{ end }}
+          env:
+            {{- include "posthog.commonEnv" $root | nindent 12 }}
+            {{- include "posthog.renderEnvMap" (dict "root" $root "env" (default dict $component.env)) | nindent 12 }}
+          {{ with (default $root.Values.defaultSecurityContext $component.securityContext) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{ end }}
+          {{ with $probes.liveness }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{ end }}
+          {{ with $probes.readiness }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{ end }}
+          {{ with $probes.startup }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{ end }}
+          resources:
+            {{- toYaml (default $root.Values.defaultResources $component.resources) | nindent 12 }}
+          {{ if or $persistence.enabled $configMounts }}
+          volumeMounts:
+            {{- if $persistence.enabled }}
+            - name: data
+              mountPath: {{ $persistence.mountPath }}
+            {{- end }}
+            {{- range $configMounts }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+            {{- end }}
+          {{ end }}
+      {{ if or $persistence.enabled $configMounts }}
+      volumes:
+        {{- if $persistence.enabled }}
+        {{- if eq $component.kind "Deployment" }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- end }}
+        {{- range $configMounts }}
+        - name: {{ .name }}
+          configMap:
+            name: {{ include "posthog.fullname" $root }}-{{ trimPrefix "posthog-" .name }}
+        {{- end }}
+      {{ end }}
+  {{ if and (eq $component.kind "StatefulSet") $persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml (default (list "ReadWriteOnce") $persistence.accessModes) | nindent 10 }}
+        {{- with $persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $persistence.size | quote }}
+  {{ end }}
+{{ end }}
+{{- end }}

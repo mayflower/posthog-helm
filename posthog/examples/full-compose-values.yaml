@@ -1,0 +1,33 @@
+components:
+  proxy:
+    enabled: true
+  temporalAdminTools:
+    enabled: true
+  temporalUi:
+    enabled: true
+  elasticsearch:
+    enabled: true
+  opensearch:
+    enabled: true
+  opensearchDashboards:
+    enabled: true
+  flower:
+    enabled: true
+  kafkaUi:
+    enabled: true
+  maildev:
+    enabled: true
+  objectstorageAzure:
+    enabled: true
+  webhookTester:
+    enabled: true
+  otelCollector:
+    enabled: true
+  jaeger:
+    enabled: true
+  localstack:
+    enabled: true
+  duckgres:
+    enabled: true
+  etcd:
+    enabled: true

@@ -1,0 +1,36 @@
+dependencies:
+- name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  version: 18.6.4
+- name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 25.5.3
+- name: minio
+  repository: https://charts.bitnami.com/bitnami
+  version: 17.0.21
+- name: redpanda
+  repository: https://charts.redpanda.com
+  version: 26.1.3
+- name: zookeeper
+  repository: https://charts.bitnami.com/bitnami
+  version: 13.8.7
+- name: altinity-clickhouse-operator
+  repository: https://docs.altinity.com/clickhouse-operator
+  version: 0.27.0
+- name: grafana
+  repository: https://grafana.github.io/helm-charts
+  version: 10.5.15
+- name: loki
+  repository: https://grafana.github.io/helm-charts
+  version: 7.0.0
+- name: promtail
+  repository: https://grafana.github.io/helm-charts
+  version: 6.17.1
+- name: prometheus
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 29.6.0
+- name: cert-manager
+  repository: https://charts.jetstack.io
+  version: v1.20.2
+digest: sha256:a6f805b653de46f63f48942cadc60fedcbeed2cafaa356f99d49c28aefd6c728
+generated: "2026-05-13T08:03:10.897364+02:00"

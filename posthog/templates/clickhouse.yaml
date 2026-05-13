@@ -1,0 +1,53 @@
+{{- if and .Values.clickhouse.enabled (eq .Values.profile.mode "bundled") -}}
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: {{ .Values.internal.clickhouse.host }}
+  labels:
+    {{- include "posthog.labels" . | nindent 4 }}
+spec:
+  configuration:
+    clusters:
+      - name: posthog
+        layout:
+          shardsCount: 1
+          replicasCount: {{ .Values.clickhouse.replicas }}
+    users:
+      app/profile: default
+      app/quota: default
+      app/networks/ip:
+        - "::/0"
+        - 0.0.0.0/0
+      app/password:
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "posthog.secretName" . }}
+            key: {{ .Values.secrets.keys.clickhousePassword }}
+      api/profile: default
+      api/quota: default
+      api/networks/ip:
+        - "::/0"
+        - 0.0.0.0/0
+      api/password: apipass
+    settings:
+      kafka_hosts: {{ tpl .Values.clickhouse.config.kafkaHosts . | quote }}
+  defaults:
+    templates:
+      podTemplate: clickhouse
+      dataVolumeClaimTemplate: data
+  templates:
+    podTemplates:
+      - name: clickhouse
+        spec:
+          containers:
+            - name: clickhouse
+              image: {{ .Values.clickhouse.image | quote }}
+    volumeClaimTemplates:
+      - name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .Values.clickhouse.storage | quote }}
+{{- end }}

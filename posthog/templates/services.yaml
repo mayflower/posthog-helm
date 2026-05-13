@@ -1,0 +1,25 @@
+{{- $root := . -}}
+{{- range $name, $component := .Values.components }}
+{{- $service := default dict $component.service -}}
+{{- $ports := default list $component.ports -}}
+{{- if and $component.enabled $service.enabled $ports }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+spec:
+  type: {{ default "ClusterIP" $service.type }}
+  selector:
+    {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 4 }}
+  ports:
+    {{- range $ports }}
+    - name: {{ .name }}
+      port: {{ .servicePort }}
+      targetPort: {{ .name }}
+    {{- end }}
+{{- end }}
+{{- end }}

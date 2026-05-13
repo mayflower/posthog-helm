@@ -1,0 +1,45 @@
+{{- $root := . -}}
+{{- range $name, $component := .Values.components }}
+{{- $autoscaling := default dict $component.autoscaling -}}
+{{- if and $component.enabled $autoscaling.enabled (or (eq $component.kind "Deployment") (eq $component.kind "StatefulSet")) }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: {{ $component.kind }}
+    name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  minReplicas: {{ default 1 $autoscaling.minReplicas }}
+  maxReplicas: {{ required (printf "components.%s.autoscaling.maxReplicas is required when autoscaling is enabled" $name) $autoscaling.maxReplicas }}
+  {{- if $autoscaling.metrics }}
+  metrics:
+    {{- toYaml $autoscaling.metrics | nindent 4 }}
+  {{- else }}
+  metrics:
+    {{- if $autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ default 80 $autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- with $autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

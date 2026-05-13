@@ -1,0 +1,34 @@
+{{- if .Values.ingress.enabled -}}
+{{- $host := default .Values.global.domain .Values.ingress.host -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "posthog.fullname" . }}
+  labels:
+    {{- include "posthog.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range .Values.routing.routes }}
+          - path: {{ .path | quote }}
+            pathType: {{ default "Prefix" .pathType }}
+            backend:
+              service:
+                name: {{ include "posthog.fullname" $ }}-{{ .service }}
+                port:
+                  number: {{ .port }}
+          {{- end }}
+{{- end }}

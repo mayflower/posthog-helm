@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "key": { "type": "string", "minLength": 1 }
+      },
+      "required": ["name", "key"]
+    },
+    "requiredSecretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "key": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "required": ["name", "key"]
+    },
+    "imageRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "$ref": "#/$defs/nonEmptyString" },
+        "tag": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "required": ["repository", "tag"]
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      },
+      "required": ["name", "containerPort", "servicePort"]
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "kind": { "type": "string", "enum": ["Deployment", "StatefulSet", "Job"] },
+        "image": { "$ref": "#/$defs/nonEmptyString" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "ports": { "type": "array", "items": { "$ref": "#/$defs/port" } },
+        "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "integer", "boolean"] } },
+        "service": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "type": { "type": "string" }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "size": { "$ref": "#/$defs/nonEmptyString" },
+            "mountPath": { "$ref": "#/$defs/nonEmptyString" },
+            "storageClass": { "type": "string" },
+            "accessModes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nonEmptyString" },
+              "minItems": 1
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "targetMemoryUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "pdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "type": ["integer", "string"] },
+            "maxUnavailable": { "type": ["integer", "string"] }
+          }
+        }
+      },
+      "required": ["enabled", "kind", "image"]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/nonEmptyString" },
+        "pathType": { "type": "string", "enum": ["Exact", "Prefix", "ImplementationSpecific"] },
+        "service": { "$ref": "#/$defs/nonEmptyString" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "stripPrefix": { "type": "boolean" }
+      },
+      "required": ["path", "service", "port"]
+    }
+  },
+  "properties": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["bundled", "external"]
+        }
+      },
+      "required": ["mode"]
+    },
+    "global": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "domain": { "$ref": "#/$defs/nonEmptyString" },
+        "siteUrl": { "$ref": "#/$defs/nonEmptyString" },
+        "deployment": { "type": "string" },
+        "imagePullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "imagePullSecrets": { "type": "array" },
+        "nodeSelector": { "type": "object" },
+        "affinity": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "topologySpreadConstraints": { "type": "array" },
+        "priorityClassName": { "type": "string" },
+        "allowMutableImageTags": { "type": "boolean" }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/imageRef" }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "create": { "type": "boolean" },
+        "existingSecret": { "type": "string" },
+        "keys": { "type": "object" },
+        "values": { "type": "object" }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "routes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/route" },
+          "minItems": 1
+        }
+      },
+      "required": ["routes"]
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "host": { "type": "string" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "tls": { "type": "array" }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/component" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "properties": { "mode": { "const": "external" } },
+            "required": ["mode"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "external": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "postgres": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "url": { "type": "string" },
+                  "host": { "type": "string" },
+                  "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                  "database": { "type": "string" },
+                  "user": { "type": "string" },
+                  "passwordSecret": { "$ref": "#/$defs/secretRef" }
+                },
+                "oneOf": [
+                  { "required": ["url"], "properties": { "url": { "$ref": "#/$defs/nonEmptyString" } } },
+                  {
+                    "required": ["host", "database", "user", "passwordSecret"],
+                    "properties": {
+                      "host": { "$ref": "#/$defs/nonEmptyString" },
+                      "database": { "$ref": "#/$defs/nonEmptyString" },
+                      "user": { "$ref": "#/$defs/nonEmptyString" },
+                      "passwordSecret": { "$ref": "#/$defs/requiredSecretRef" }
+                    }
+                  }
+                ]
+              },
+              "redis": {
+                "type": "object",
+                "properties": { "url": { "$ref": "#/$defs/nonEmptyString" } },
+                "required": ["url"]
+              },
+              "kafka": {
+                "type": "object",
+                "properties": { "hosts": { "$ref": "#/$defs/nonEmptyString" } },
+                "required": ["hosts"]
+              },
+              "clickhouse": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "host": { "$ref": "#/$defs/nonEmptyString" },
+                  "passwordSecret": { "$ref": "#/$defs/secretRef" }
+                },
+                "required": ["host"]
+              },
+              "objectStorage": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "endpoint": { "$ref": "#/$defs/nonEmptyString" },
+                  "accessKeySecret": { "$ref": "#/$defs/secretRef" },
+                  "secretKeySecret": { "$ref": "#/$defs/secretRef" }
+                },
+                "required": ["endpoint"]
+              },
+              "sessionRecording": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "endpoint": { "$ref": "#/$defs/nonEmptyString" },
+                  "accessKeySecret": { "$ref": "#/$defs/secretRef" },
+                  "secretKeySecret": { "$ref": "#/$defs/secretRef" }
+                },
+                "required": ["endpoint"]
+              },
+              "temporal": {
+                "type": "object",
+                "properties": { "host": { "$ref": "#/$defs/nonEmptyString" } },
+                "required": ["host"]
+              }
+            },
+            "required": ["postgres", "redis", "kafka", "clickhouse", "objectStorage", "sessionRecording", "temporal"]
+          }
+        },
+        "required": ["external"]
+      }
+    }
+  ]
+}

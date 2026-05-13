@@ -1,0 +1,23 @@
+{{- $root := . -}}
+{{- range $name, $component := .Values.components }}
+{{- $pdb := default dict $component.pdb -}}
+{{- if and $component.enabled $pdb.enabled (or (eq $component.kind "Deployment") (eq $component.kind "StatefulSet")) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+spec:
+  {{- if hasKey $pdb "minAvailable" }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ default 1 $pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 6 }}
+{{- end }}
+{{- end }}
