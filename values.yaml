@@ -1088,6 +1088,7 @@ clickhouse:
   image: clickhouse/clickhouse-server:26.3.9.8
   replicas: 1
   storage: 50Gi
+  satelliteClusters: ""
   macros:
     hostClusterType: online
     hostClusterRole: data

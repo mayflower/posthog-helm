@@ -481,6 +481,8 @@ redis-password
 - name: CLICKHOUSE_LOGS_CLUSTER
   value: {{ . | quote }}
 {{- end }}
+- name: CLICKHOUSE_SATELLITE_CLUSTERS
+  value: {{ .Values.clickhouse.satelliteClusters | quote }}
 - name: CLICKHOUSE_LOGS_CLUSTER_HOST
   value: {{ include "posthog.clickhouseHost" . | quote }}
 - name: CLICKHOUSE_LOGS_CLUSTER_DATABASE

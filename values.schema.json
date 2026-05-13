@@ -157,6 +157,7 @@
         "image": { "$ref": "#/$defs/nonEmptyString" },
         "replicas": { "type": "integer", "minimum": 1 },
         "storage": { "$ref": "#/$defs/nonEmptyString" },
+        "satelliteClusters": { "type": "string" },
         "macros": {
           "type": "object",
           "additionalProperties": false,
