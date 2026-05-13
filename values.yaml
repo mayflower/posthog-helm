@@ -651,8 +651,27 @@ components:
     service:
       enabled: true
     env:
+      LIVESTREAM_DEBUG: "false"
       LIVESTREAM_MMDB_PATH: /GeoLite2-City.mmdb
-      LIVESTREAM_JWT_SECRET: ""
+      LIVESTREAM_POSTGRES_URL: "{{ include \"posthog.postgresUrl\" . }}"
+      LIVESTREAM_REDIS_ADDRESS: "{{ include \"posthog.redisHost\" . }}"
+      LIVESTREAM_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
+      LIVESTREAM_REDIS_TLS: "false"
+      LIVESTREAM_REDIS_USE_PUB_SUB: "true"
+      LIVESTREAM_CONSUMERS_EVENT_ENABLED: "true"
+      LIVESTREAM_CONSUMERS_EVENT_BROKERS: "{{ include \"posthog.kafkaHosts\" . }}"
+      LIVESTREAM_CONSUMERS_EVENT_TOPIC: events_plugin_ingestion
+      LIVESTREAM_CONSUMERS_EVENT_SECURITY_PROTOCOL: PLAINTEXT
+      LIVESTREAM_CONSUMERS_EVENT_GROUP_ID: livestream
+      LIVESTREAM_CONSUMERS_EVENT_SESSION_TIMEOUT_MS: "6000"
+      LIVESTREAM_CONSUMERS_EVENT_HEARTBEAT_INTERVAL_MS: "1000"
+      LIVESTREAM_CONSUMERS_EVENT_MAX_POLL_INTERVAL_MS: "6000"
+      LIVESTREAM_CONSUMERS_SESSION_RECORDING_ENABLED: "true"
+      LIVESTREAM_CONSUMERS_SESSION_RECORDING_BROKERS: "{{ include \"posthog.kafkaHosts\" . }}"
+      LIVESTREAM_CONSUMERS_SESSION_RECORDING_TOPIC: session_recording_snapshot_item_events
+      LIVESTREAM_CONSUMERS_SESSION_RECORDING_SECURITY_PROTOCOL: PLAINTEXT
+      LIVESTREAM_CONSUMERS_SESSION_RECORDING_GROUP_ID: livestream-session-recordings
+      LIVESTREAM_CONSUMERS_NOTIFICATION_ENABLED: "false"
   cyclotronJanitor:
     enabled: true
     kind: Deployment
