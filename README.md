@@ -27,7 +27,7 @@ Install from the GitHub Container Registry after a chart version has been publis
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.9 \
+  --version 0.2.10 \
   --namespace posthog \
   --create-namespace \
   --set global.domain=posthog.example.com \
@@ -129,6 +129,10 @@ external:
 ```
 
 When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_URL` from host/user/database, appends `sslmode`/`params`, and injects `POSTGRES_PASSWORD` from that secret. When `external.redis.passwordSecret.name` is set, the chart injects `REDIS_PASSWORD` and builds Redis URLs with Kubernetes env expansion. This avoids putting service passwords in values files.
+
+## Kafka Topics
+
+The `kafkaInit` hook creates the topics PostHog services expect before migrations and workloads start. The default list is exposed as `kafka.topics`; override it when you run with a custom PostHog Kafka prefix or a broker policy that manages topics separately.
 
 ## Routing
 

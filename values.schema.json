@@ -148,6 +148,18 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/imageRef" }
     },
+    "kafka": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "defaultPartitions": { "type": "integer", "minimum": 1 },
+        "defaultReplicationFactor": { "type": "integer", "minimum": 1 },
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      }
+    },
     "secrets": {
       "type": "object",
       "additionalProperties": true,

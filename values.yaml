@@ -22,6 +22,78 @@ subcharts:
   redpanda:
     enabled: true
 
+kafka:
+  defaultPartitions: 1
+  defaultReplicationFactor: 1
+  topics:
+    - clickhouse_events_json
+    - kafka_events_recent_json
+    - clickhouse_person
+    - clickhouse_person_overrides
+    - clickhouse_person_unique_id
+    - clickhouse_person_distinct_id
+    - clickhouse_person_distinct_id_overrides
+    - clickhouse_person_distinct_id2
+    - events_plugin_ingestion
+    - events_plugin_ingestion_dlq
+    - events_plugin_ingestion_overflow
+    - events_plugin_ingestion_async
+    - events_plugin_ingestion_historical
+    - plugin_log_entries
+    - events_dead_letter_queue
+    - clickhouse_groups
+    - conversion_events_buffer
+    - clickhouse_ingestion_warnings
+    - clickhouse_app_metrics
+    - clickhouse_app_metrics2
+    - clickhouse_metrics_time_to_see_data
+    - session_recording_events
+    - session_recording_snapshot_item_events
+    - session_recording_snapshot_item_overflow
+    - session_recording_snapshot_item_dlq
+    - clickhouse_session_recording_events
+    - clickhouse_session_replay_events
+    - clickhouse_session_replay_features
+    - clickhouse_performance_events
+    - clickhouse_heatmap_events
+    - clickhouse_ai_events_json
+    - log_entries
+    - cdp_function_overflow
+    - cdp_internal_events
+    - clickhouse_behavioral_cohorts_matches
+    - clickhouse_prefiltered_events
+    - clickhouse_precalculated_person_properties
+    - cdp_backfill_events
+    - cohort_membership_changed
+    - cdp_batch_hogflow_requests
+    - cdp_data_warehouse_source_table
+    - data_warehouse_source_webhooks
+    - data_warehouse_source_webhooks_dlq
+    - data_warehouse_sources_jobs
+    - data_warehouse_sources_jobs_dlq
+    - ingestion-errortracking-main
+    - ingestion-errortracking-main-dlq
+    - ingestion-errortracking-overflow
+    - clickhouse_error_tracking_issue_fingerprint
+    - clickhouse_error_tracking_issue_fingerprint_overrides
+    - clickhouse_error_tracking_fingerprint_issue_state
+    - clickhouse_error_tracking_issue_fingerprint_embeddings
+    - clickhouse_document_embeddings
+    - document_embeddings_input
+    - logs_ingestion
+    - logs_ingestion_dlq
+    - logs_ingestion_overflow
+    - clickhouse_logs
+    - ingestion-traces
+    - ingestion-traces-dlq
+    - ingestion-traces-overflow
+    - clickhouse_traces
+    - clickhouse_tophog
+    - distinct_id_usage_events_json
+    - clickhouse_property_values
+    - notification_events
+    - signals_report_completed
+
 secrets:
   create: true
   existingSecret: ""
@@ -723,8 +795,9 @@ components:
       - |
         set -e
         until rpk topic list --brokers "${KAFKA_HOSTS}"; do sleep 2; done
-        for topic in clickhouse_events_json; do
-          rpk topic create "$topic" --brokers "${KAFKA_HOSTS}" -p 1 -r 1 || true
+        topics="{{ range .Values.kafka.topics }} {{ . }}{{ end }}"
+        for topic in $topics; do
+          rpk topic create "$topic" --brokers "${KAFKA_HOSTS}" -p {{ .Values.kafka.defaultPartitions }} -r {{ .Values.kafka.defaultReplicationFactor }} || true
         done
   proxy:
     enabled: false
