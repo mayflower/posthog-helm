@@ -280,6 +280,34 @@ redis-password
 {{- if eq .Values.profile.mode "external" -}}{{ .Values.external.clickhouse.verify }}{{- else -}}{{ .Values.internal.clickhouse.verify }}{{- end -}}
 {{- end -}}
 
+{{- define "posthog.clickhouseCluster" -}}
+{{- $configured := "" -}}
+{{- if eq .Values.profile.mode "external" -}}
+{{- $configured = default "" .Values.external.clickhouse.cluster -}}
+{{- else -}}
+{{- $configured = default "" .Values.internal.clickhouse.cluster -}}
+{{- end -}}
+{{- if $configured -}}
+{{- $configured -}}
+{{- else if .Values.clickhouse.enabled -}}
+{{- .Values.clickhouse.clusterName -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "posthog.clickhouseMigrationsCluster" -}}
+{{- $configured := "" -}}
+{{- if eq .Values.profile.mode "external" -}}
+{{- $configured = default "" .Values.external.clickhouse.migrationsCluster -}}
+{{- else -}}
+{{- $configured = default "" .Values.internal.clickhouse.migrationsCluster -}}
+{{- end -}}
+{{- if $configured -}}
+{{- $configured -}}
+{{- else -}}
+{{- include "posthog.clickhouseCluster" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "posthog.objectStorageEndpoint" -}}
 {{- if eq .Values.profile.mode "external" -}}{{ required "external.objectStorage.endpoint is required in external mode" .Values.external.objectStorage.endpoint }}{{- else -}}{{ .Values.internal.objectStorage.endpoint }}{{- end -}}
 {{- end -}}
@@ -435,6 +463,10 @@ redis-password
   value: {{ include "posthog.clickhouseSecure" . | quote }}
 - name: CLICKHOUSE_VERIFY
   value: {{ include "posthog.clickhouseVerify" . | quote }}
+{{- with (include "posthog.clickhouseMigrationsCluster" .) }}
+- name: CLICKHOUSE_MIGRATIONS_CLUSTER
+  value: {{ . | quote }}
+{{- end }}
 - name: OBJECT_STORAGE_ENABLED
   value: "true"
 - name: OBJECT_STORAGE_ENDPOINT

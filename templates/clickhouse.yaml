@@ -8,7 +8,7 @@ metadata:
 spec:
   configuration:
     clusters:
-      - name: posthog
+      - name: {{ .Values.clickhouse.clusterName }}
         layout:
           shardsCount: 1
           replicasCount: {{ .Values.clickhouse.replicas }}

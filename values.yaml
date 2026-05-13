@@ -244,6 +244,7 @@ external:
     secure: "false"
     verify: "false"
     cluster: ""
+    migrationsCluster: ""
     passwordSecret:
       name: ""
       key: password
@@ -291,7 +292,8 @@ internal:
     user: app
     secure: "false"
     verify: "false"
-    cluster: ""
+    cluster: posthog
+    migrationsCluster: ""
   objectStorage:
     endpoint: http://objectstorage:9000
     publicEndpoint: ""
@@ -1082,6 +1084,7 @@ clickhouse:
   enabled: true
   operator:
     enabled: true
+  clusterName: posthog
   image: clickhouse/clickhouse-server:26.3.9.8
   replicas: 1
   storage: 50Gi

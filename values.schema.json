@@ -283,6 +283,8 @@
                 "additionalProperties": true,
                 "properties": {
                   "host": { "$ref": "#/$defs/nonEmptyString" },
+                  "cluster": { "type": "string" },
+                  "migrationsCluster": { "type": "string" },
                   "passwordSecret": { "$ref": "#/$defs/secretRef" }
                 },
                 "required": ["host"]
