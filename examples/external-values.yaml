@@ -39,6 +39,7 @@ external:
     host: redis.example.com
     port: 6379
     database: 0
+    tls: false
     passwordSecret:
       name: posthog-redis
       key: password

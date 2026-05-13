@@ -232,6 +232,10 @@ redis-password
 {{- if eq .Values.profile.mode "external" -}}{{ default 0 .Values.external.redis.database }}{{- else -}}{{ default 0 .Values.internal.redis.database }}{{- end -}}
 {{- end -}}
 
+{{- define "posthog.redisTls" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ ternary "true" "false" (default false .Values.external.redis.tls) }}{{- else -}}{{ ternary "true" "false" (default false .Values.internal.redis.tls) }}{{- end -}}
+{{- end -}}
+
 {{- define "posthog.redisPasswordEnv" -}}
 {{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name -}}$(REDIS_PASSWORD){{- end -}}
 {{- end -}}

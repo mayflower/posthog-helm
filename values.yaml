@@ -232,6 +232,7 @@ external:
     host: ""
     port: 6379
     database: 0
+    tls: false
     passwordSecret:
       name: ""
       key: password
@@ -284,6 +285,7 @@ internal:
     host: redis7-master
     port: 6379
     database: 0
+    tls: false
   kafka:
     hosts: kafka:9092
   clickhouse:
@@ -541,6 +543,8 @@ components:
     env:
       PLUGIN_SERVER_MODE: ingestion-logs
       LOGS_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      LOGS_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
+      LOGS_REDIS_TLS: "{{ include \"posthog.redisTls\" . }}"
   ingestionTraces:
     enabled: true
     kind: Deployment
@@ -550,6 +554,8 @@ components:
     env:
       PLUGIN_SERVER_MODE: ingestion-traces
       TRACES_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      TRACES_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
+      TRACES_REDIS_TLS: "{{ include \"posthog.redisTls\" . }}"
   capture:
     enabled: true
     kind: Deployment

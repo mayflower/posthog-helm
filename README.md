@@ -105,6 +105,7 @@ external:
     host: redis.example.com
     port: 6379
     database: 0
+    tls: false
     passwordSecret:
       name: posthog-redis
       key: password
@@ -128,7 +129,7 @@ external:
       key: secret-key
 ```
 
-When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_URL` from host/user/database, appends `sslmode`/`params`, and injects `POSTGRES_PASSWORD` from that secret. When `external.redis.passwordSecret.name` is set, the chart injects `REDIS_PASSWORD` and builds Redis URLs with Kubernetes env expansion. This avoids putting service passwords in values files.
+When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_URL` from host/user/database, appends `sslmode`/`params`, and injects `POSTGRES_PASSWORD` from that secret. When `external.redis.passwordSecret.name` is set, the chart injects `REDIS_PASSWORD` and builds Redis URLs with Kubernetes env expansion. Set `external.redis.tls=true` only for Redis endpoints that require TLS. This avoids putting service passwords in values files.
 
 ## Kafka Topics
 
