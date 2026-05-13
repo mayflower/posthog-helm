@@ -137,7 +137,7 @@ The `kafkaInit` hook creates the topics PostHog services expect before migration
 
 ## ClickHouse
 
-The bundled ClickHouse profile grants the PostHog `app` user full ClickHouse privileges because PostHog migrations create databases, replicated tables, Kafka-engine tables, dictionaries, materialized views, and named-collection based Kafka engines. When you use an external ClickHouse service, provision the configured `external.clickhouse.user` with equivalent migration privileges before installing the chart.
+The bundled ClickHouse profile grants the PostHog `app` user full ClickHouse privileges because PostHog migrations create databases, replicated tables, Kafka-engine tables, dictionaries, materialized views, and named-collection based Kafka engines. The migration job runs `SYSTEM FLUSH LOGS` before PostHog migrations so ClickHouse system log tables such as `system.crash_log` exist before PostHog creates materialized views over them. When you use an external ClickHouse service, provision the configured `external.clickhouse.user` with equivalent migration privileges before installing the chart.
 
 ## Routing
 

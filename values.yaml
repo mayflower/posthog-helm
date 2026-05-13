@@ -786,7 +786,23 @@ components:
     kind: Job
     image: app
     hook: pre-install,pre-upgrade
-    command: ["./bin/migrate"]
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        set -e
+        if [ -n "${CLICKHOUSE_HOST:-}" ]; then
+          for attempt in $(seq 1 30); do
+            if python -c 'import os; from clickhouse_driver import Client; Client(host=os.environ["CLICKHOUSE_HOST"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), secure=os.environ.get("CLICKHOUSE_SECURE", "false").lower() == "true", verify=os.environ.get("CLICKHOUSE_VERIFY", "false").lower() == "true").execute("SYSTEM FLUSH LOGS")'; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "ClickHouse log preflight failed" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+        fi
+        exec ./bin/migrate
   asyncMigrationsCheck:
     enabled: true
     kind: Job
