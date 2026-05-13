@@ -148,6 +148,25 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/imageRef" }
     },
+    "clickhouse": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "clusterName": { "$ref": "#/$defs/nonEmptyString" },
+        "image": { "$ref": "#/$defs/nonEmptyString" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "storage": { "$ref": "#/$defs/nonEmptyString" },
+        "macros": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hostClusterType": { "$ref": "#/$defs/nonEmptyString" },
+            "hostClusterRole": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      }
+    },
     "kafka": {
       "type": "object",
       "additionalProperties": true,

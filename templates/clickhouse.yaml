@@ -37,6 +37,8 @@ spec:
       api/password: apipass
     settings:
       kafka_hosts: {{ tpl .Values.clickhouse.config.kafkaHosts . | quote }}
+      macros/hostClusterType: {{ .Values.clickhouse.macros.hostClusterType | quote }}
+      macros/hostClusterRole: {{ .Values.clickhouse.macros.hostClusterRole | quote }}
   defaults:
     templates:
       podTemplate: clickhouse
