@@ -60,6 +60,8 @@ kafka:
     - log_entries
     - cdp_function_overflow
     - cdp_internal_events
+    - cdp_cyclotron_hog
+    - cdp_cyclotron_hogflow
     - clickhouse_behavioral_cohorts_matches
     - clickhouse_prefiltered_events
     - clickhouse_precalculated_person_properties
@@ -797,7 +799,14 @@ components:
         until rpk topic list --brokers "${KAFKA_HOSTS}"; do sleep 2; done
         topics="{{ range .Values.kafka.topics }} {{ . }}{{ end }}"
         for topic in $topics; do
-          rpk topic create "$topic" --brokers "${KAFKA_HOSTS}" -p {{ .Values.kafka.defaultPartitions }} -r {{ .Values.kafka.defaultReplicationFactor }} || true
+          if rpk topic create "$topic" --brokers "${KAFKA_HOSTS}" -p {{ .Values.kafka.defaultPartitions }} -r {{ .Values.kafka.defaultReplicationFactor }}; then
+            echo "Created Kafka topic $topic"
+          elif rpk topic list --brokers "${KAFKA_HOSTS}" | awk '{print $1}' | grep -Fxq "$topic"; then
+            echo "Kafka topic $topic already exists"
+          else
+            echo "Failed to create Kafka topic $topic"
+            exit 1
+          fi
         done
   proxy:
     enabled: false
