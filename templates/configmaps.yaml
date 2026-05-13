@@ -31,8 +31,15 @@ metadata:
     {{- include "posthog.labels" . | nindent 4 }}
 data:
   development-sql.yaml: |
-    frontend.enableUpdateWorkflowExecution:
+    limit.maxIDLength:
+      - value: 255
+        constraints: {}
+    system.forceSearchAttributesCacheRefreshOnRead:
       - value: true
+        constraints: {}
+    system.visibilityDisableOrderByClause:
+      - value: false
+        constraints: {}
 ---
 apiVersion: v1
 kind: ConfigMap

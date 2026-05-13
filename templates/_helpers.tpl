@@ -392,6 +392,8 @@ redis-password
   value: {{ include "posthog.kafkaHosts" . | quote }}
 - name: KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST
   value: {{ include "posthog.kafkaHosts" . | quote }}
+- name: MMDB_FILE_LOCATION
+  value: "/app/share/GeoLite2-City.mmdb"
 - name: TEMPORAL_HOST
   value: {{ include "posthog.temporalHost" . | quote }}
 - name: TEMPORAL_PORT

@@ -736,6 +736,9 @@ components:
         servicePort: 7233
     service:
       enabled: true
+    configMounts:
+      - name: posthog-temporal-dynamicconfig
+        mountPath: /etc/temporal/config/dynamicconfig
     env:
       DB: postgres12
       DB_PORT: "5432"
