@@ -24,7 +24,7 @@ spec:
       app/networks/ip:
         - "::/0"
         - 0.0.0.0/0
-      app/grants/query: GRANT NAMED COLLECTION ON * TO app
+      app/grants/query: GRANT NAMED COLLECTION ON *
       app/password:
         valueFrom:
           secretKeyRef:
