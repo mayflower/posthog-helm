@@ -327,6 +327,12 @@ routing:
     - path: /i/v0/ai
       service: capture-ai
       port: 3000
+    # Keep frontend assets on the Django web service. Some ingress
+    # controllers treat /s as a raw string prefix and would otherwise route
+    # /static to replay-capture.
+    - path: /static
+      service: web
+      port: 8000
     - path: /s
       service: replay-capture
       port: 3000
