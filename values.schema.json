@@ -56,6 +56,19 @@
         "args": { "type": "array", "items": { "type": "string" } },
         "ports": { "type": "array", "items": { "$ref": "#/$defs/port" } },
         "env": { "type": "object", "additionalProperties": { "type": ["string", "number", "integer", "boolean"] } },
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": { "$ref": "#/$defs/nonEmptyString" },
+              "value": { "type": ["string", "number", "integer", "boolean"] },
+              "valueFrom": { "type": "object", "additionalProperties": true }
+            },
+            "required": ["name"]
+          }
+        },
         "service": {
           "type": "object",
           "additionalProperties": true,

@@ -106,6 +106,9 @@ spec:
           env:
             {{- include "posthog.commonEnv" $root | nindent 12 }}
             {{- include "posthog.renderEnvMap" (dict "root" $root "env" (default dict $component.env)) | nindent 12 }}
+            {{- with $component.extraEnv }}
+            {{- tpl (toYaml .) $root | nindent 12 }}
+            {{- end }}
           {{ with (default $root.Values.defaultSecurityContext $component.securityContext) }}
           securityContext:
             {{- toYaml . | nindent 12 }}

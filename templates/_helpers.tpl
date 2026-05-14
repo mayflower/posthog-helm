@@ -394,6 +394,11 @@ redis-password
     secretKeyRef:
       name: {{ include "posthog.secretName" . }}
       key: {{ .Values.secrets.keys.livestreamJwtSecret }}
+- name: INTERNAL_API_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.secretName" . }}
+      key: {{ .Values.secrets.keys.internalApiSecret }}
 - name: DATABASE_URL
   value: {{ include "posthog.postgresUrl" . | quote }}
 - name: PERSONS_DATABASE_URL

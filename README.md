@@ -27,7 +27,7 @@ Install from the GitHub Container Registry after a chart version has been publis
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.14 \
+  --version 0.2.28 \
   --namespace posthog \
   --create-namespace \
   --set global.domain=posthog.example.com \
@@ -42,7 +42,8 @@ kubectl -n posthog create secret generic posthog-runtime-secrets \
   --from-literal=SECRET_KEY='<replace-me>' \
   --from-literal=ENCRYPTION_SALT_KEYS='<replace-me>' \
   --from-literal=CAPTURE_LOGS_JWT_SECRET='<replace-me>' \
-  --from-literal=LIVESTREAM_JWT_SECRET='<replace-me>'
+  --from-literal=LIVESTREAM_JWT_SECRET='<replace-me>' \
+  --from-literal=INTERNAL_API_SECRET='<replace-me>'
 
 helm upgrade --install posthog . \
   --namespace posthog \
@@ -77,6 +78,7 @@ For production, create a runtime secret and set `secrets.existingSecret`. The se
 - `ENCRYPTION_SALT_KEYS`
 - `CAPTURE_LOGS_JWT_SECRET`
 - `LIVESTREAM_JWT_SECRET`
+- `INTERNAL_API_SECRET`
 
 It must also contain these keys when you do not configure the provider-specific external secret refs below:
 
@@ -134,6 +136,44 @@ When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_
 ## Kafka Topics
 
 The `kafkaInit` hook creates the topics PostHog services expect before migrations and workloads start. The default list is exposed as `kafka.topics`; override it when you run with a custom PostHog Kafka prefix or a broker policy that manages topics separately.
+
+## Optional Feature Components
+
+The default profile stays a generic PostHog install and keeps newer or heavier feature surfaces disabled until you explicitly opt in. These components render from the same generic workload template and inherit the chart's Postgres, Redis, Kafka, ClickHouse, Temporal, object-storage, scheduling, and monitoring settings.
+
+Enable the components you need under `components`:
+
+```yaml
+components:
+  embeddingWorker:
+    enabled: true
+    extraEnv:
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: posthog-llm-provider
+            key: openai-api-key
+  batchImportWorker:
+    enabled: true
+  webhookS3Sink:
+    enabled: true
+  ingestionMetrics:
+    enabled: true
+  recordingRasterizer:
+    enabled: true
+```
+
+Available optional components:
+
+- `embeddingWorker` consumes `document_embeddings_input`, writes `clickhouse_document_embeddings`, and emits `document_embedding_results`. It needs an embedding provider key through `extraEnv`.
+- `batchImportWorker` processes batch import jobs and emits into the normal capture ingestion topics.
+- `webhookS3Sink` consumes `data_warehouse_source_webhooks` and writes webhook payload batches to the configured object storage.
+- `ingestionMetrics` runs the Node.js metrics ingestion consumer for the `metrics_ingestion` topic family.
+- `recordingRasterizer` runs the dedicated Chromium/ffmpeg recording rasterizer image for video exports and uses the chart's object-storage credentials.
+
+The chart does not include `llmGateway`. Several prominent PostHog AI assistant, Slack, research-agent, and session-summary flows in the current PostHog source cross into `ee.hogai`/`ee.models`; keep those out of this generic FOSS-oriented chart until a self-hosted FOSS runtime path is explicit upstream.
+
+PostHog's `services/mcp` code is not included here as a Kubernetes service. Upstream currently packages that server as a Cloudflare Worker with Durable Objects, while its Dockerfile is only an `mcp-remote` client wrapper to `https://mcp.posthog.com/mcp`. A self-hosted MCP service would need a separate upstream-supported server image or a deliberate port of the Worker runtime to a normal HTTP service.
 
 ## ClickHouse
 
