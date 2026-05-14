@@ -1,6 +1,6 @@
 # PostHog Helm Chart
 
-This chart is a clean v1 Kubernetes chart for the current PostHog service topology in the sibling `posthog` source tree.
+This chart is a clean v1 Kubernetes chart for the current PostHog service topology.
 
 It intentionally does not preserve the old [`PostHog/charts-clickhouse`](https://github.com/PostHog/charts-clickhouse) values API. That repository is useful historical context, but its dependency stack and workload split are outdated. PostHog also published the background for ending official chart support in [Sunsetting Helm support for self-hosted PostHog](https://posthog.com/blog/sunsetting-helm-support-posthog).
 
