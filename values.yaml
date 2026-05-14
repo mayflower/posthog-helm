@@ -1180,12 +1180,22 @@ minio:
 
 redpanda:
   fullnameOverride: kafka
+  config:
+    cluster:
+      enable_metrics_reporter: false
+  logging:
+    usageStats:
+      enabled: false
   external:
     enabled: false
     service:
       enabled: false
   console:
     enabled: false
+  post_install_job:
+    annotations:
+      argocd.argoproj.io/hook-delete-policy: HookSucceeded
+      helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
   statefulset:
     replicas: 1
   tls:
