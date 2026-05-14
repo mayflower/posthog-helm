@@ -459,7 +459,6 @@ components:
     args: ["--with-scheduler"]
     env:
       API_QUERIES_PER_TEAM: '{"1": 100}'
-      CDP_API_URL: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"plugins\" \"port\" 6738) }}"
       FLAGS_REDIS_ENABLED: "false"
       POSTHOG_SKIP_MIGRATION_CHECKS: "1"
       PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
