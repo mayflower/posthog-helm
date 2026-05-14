@@ -21,6 +21,16 @@ global:
   domain: posthog.example.com
   siteUrl: https://posthog.example.com
 
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  tls:
+    - secretName: posthog-tls
+      hosts:
+        - posthog.example.com
+
 secrets:
   create: false
   existingSecret: posthog-runtime-secrets
@@ -78,3 +88,13 @@ external:
     port: 7233
   opensearch:
     host: opensearch.example.com:9200
+
+# Disable this when your Kafka provider requires SASL/TLS flags or manages
+# topics outside Kubernetes. Pre-create the topics listed in kafka.topics then.
+components:
+  temporal:
+    enabled: false
+  seaweedfs:
+    enabled: false
+  kafkaInit:
+    enabled: true

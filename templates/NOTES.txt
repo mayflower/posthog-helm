@@ -1,0 +1,46 @@
+PostHog has been installed into namespace {{ .Release.Namespace }}.
+
+{{- $host := default .Values.global.domain .Values.ingress.host }}
+{{- if .Values.ingress.enabled }}
+
+External URL:
+  {{ .Values.global.siteUrl }}
+
+Ingress:
+  Host: {{ $host }}
+  Class: {{ default "<cluster default>" .Values.ingress.className }}
+  TLS: {{ if .Values.ingress.tls }}configured{{ else }}not configured{{ end }}
+{{- else }}
+
+Ingress is disabled. To reach the web service locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "posthog.componentFullname" (dict "root" . "name" "web") }} 8000:8000
+  open http://localhost:8000
+{{- end }}
+
+Check install jobs:
+  kubectl -n {{ .Release.Namespace }} get jobs
+{{- if .Values.components.migrate.enabled }}
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "posthog.componentFullname" (dict "root" . "name" "migrate") }}
+{{- end }}
+{{- if .Values.components.kafkaInit.enabled }}
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "posthog.componentFullname" (dict "root" . "name" "kafkaInit") }}
+{{- end }}
+
+Check workloads:
+  kubectl -n {{ .Release.Namespace }} get pods
+  kubectl -n {{ .Release.Namespace }} get ingress
+
+Smoke tests:
+{{- if .Values.ingress.enabled }}
+  curl -I {{ .Values.global.siteUrl }}/
+  curl -fsS {{ .Values.global.siteUrl }}/preflight?mode=live
+  curl -fsS {{ .Values.global.siteUrl }}/flags/?v=2
+{{- else }}
+  curl -fsS http://localhost:8000/preflight?mode=live
+  curl -fsS http://localhost:8000/flags/?v=2
+{{- end }}
+
+Production reminders:
+  - Use profile.mode=external for durable production dependencies.
+  - Keep SECRET_KEY and ENCRYPTION_SALT_KEYS stable across upgrades.
+  - Disable components.kafkaInit.enabled when your Kafka provider requires topic management outside this chart.
