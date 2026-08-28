@@ -1308,6 +1308,10 @@ clickhouse:
   replicas: 1
   storage: 50Gi
   satelliteClusters: ""
+  # ClickHouse's default is debug, with console_log_level at trace. That is a
+  # debugging setting, not a production one -- see the note in the template.
+  logLevel: warning
+
   # ClickHouse's own diagnostic tables. Left unconfigured they write
   # continuously on an idle deployment and never expire -- 66.9 GiB against
   # 3.6 GiB of real data when this was measured. Set trim to false to keep the

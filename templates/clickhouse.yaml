@@ -37,6 +37,13 @@ spec:
         - 0.0.0.0/0
       api/password: apipass
     settings:
+      # ClickHouse ships with logger.level=debug and console_log_level=trace.
+      # On an idle deployment that produced 116 MiB of log per hour -- 2.8 GiB a
+      # day -- from a single pod, making it by far the largest log producer in
+      # the cluster; a sample of 200 lines held 156 Debug against 44 Warning.
+      # Raise it back temporarily when actually debugging the server.
+      logger/level: {{ .Values.clickhouse.logLevel | quote }}
+      logger/console_log_level: {{ .Values.clickhouse.logLevel | quote }}
       kafka_hosts: {{ tpl .Values.clickhouse.config.kafkaHosts . | quote }}
       macros/hostClusterType: {{ .Values.clickhouse.macros.hostClusterType | quote }}
       macros/hostClusterRole: {{ .Values.clickhouse.macros.hostClusterRole | quote }}
