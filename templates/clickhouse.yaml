@@ -41,6 +41,31 @@ spec:
       macros/hostClusterType: {{ .Values.clickhouse.macros.hostClusterType | quote }}
       macros/hostClusterRole: {{ .Values.clickhouse.macros.hostClusterRole | quote }}
     files:
+      {{- if .Values.clickhouse.systemLogs.trim }}
+      # ClickHouse writes its own diagnostics into system tables every second,
+      # whether or not anything is being ingested. On an idle deployment they
+      # reached 66.9 GiB against 3.6 GiB of actual PostHog data -- 19x -- with
+      # asynchronous_metric_log alone holding 16 billion rows, and most of the
+      # tables carrying no TTL at all, so they grow without bound.
+      #
+      # The ones removed here are pure profiling and duplicate what is already
+      # available elsewhere: text_log repeats the server log that is on stdout,
+      # trace_log and processors_profile_log are for profiling sessions, and the
+      # metric logs duplicate what Prometheus already scrapes. The ones kept are
+      # the ones actually used when debugging a slow query or a merge problem,
+      # and they get a retention window.
+      config.d/posthog_system_logs.xml: |
+        <clickhouse>
+          {{- range .Values.clickhouse.systemLogs.disabled }}
+          <{{ . }} remove="1"/>
+          {{- end }}
+          {{- range .Values.clickhouse.systemLogs.retained }}
+          <{{ . }}>
+            <ttl>event_date + INTERVAL {{ $.Values.clickhouse.systemLogs.ttlDays }} DAY DELETE</ttl>
+          </{{ . }}>
+          {{- end }}
+        </clickhouse>
+      {{- end }}
       config.d/posthog_named_collections.xml: |
         <clickhouse>
           <named_collections>

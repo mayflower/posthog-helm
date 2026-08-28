@@ -1308,6 +1308,33 @@ clickhouse:
   replicas: 1
   storage: 50Gi
   satelliteClusters: ""
+  # ClickHouse's own diagnostic tables. Left unconfigured they write
+  # continuously on an idle deployment and never expire -- 66.9 GiB against
+  # 3.6 GiB of real data when this was measured. Set trim to false to keep the
+  # ClickHouse defaults.
+  systemLogs:
+    trim: true
+    ttlDays: 7
+    # Removed entirely: profiling and duplicated data.
+    disabled:
+      - text_log                      # repeats the server log on stdout
+      - trace_log                     # profiling only
+      - processors_profile_log        # profiling only
+      - query_views_log               # per-view detail, rarely read
+      - background_schedule_pool_log  # internal scheduler churn
+      - metric_log                    # Prometheus already scrapes these
+      - asynchronous_metric_log       # 16 billion rows when measured
+      - opentelemetry_span_log
+      - zookeeper_log
+    # Kept, with a retention window: these are what you actually reach for when
+    # a query is slow or a merge misbehaves.
+    retained:
+      - query_log
+      - part_log
+      - error_log
+      - query_metric_log
+      - asynchronous_insert_log
+
   namedCollections:
     - msk_cluster
     - warpstream_ingestion
