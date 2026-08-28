@@ -394,6 +394,13 @@ redis-password
     secretKeyRef:
       name: {{ include "posthog.secretName" . }}
       key: {{ .Values.secrets.keys.livestreamJwtSecret }}
+{{- with .Values.secrets.keys.recordingApiJwtSecret }}
+- name: RECORDING_API_JWT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.secretName" $ }}
+      key: {{ . }}
+{{- end }}
 - name: INTERNAL_API_SECRET
   valueFrom:
     secretKeyRef:
@@ -447,8 +454,14 @@ redis-password
   value: {{ include "posthog.kafkaHosts" . | quote }}
 - name: CDP_API_URL
   value: {{ include "posthog.serviceUrl" (dict "root" . "name" "plugins" "port" 6738) | quote }}
+# Must match where the node image actually carries the database. The plugin
+# server and the error-tracking consumer abort with ENOENT if it is missing, and
+# there is no switch to run without GeoIP -- only MMDB_FILE_LOCATION and
+# MMDB_LOAD_TIMEOUT_MS exist. Overridable because the path has moved between
+# image builds; overriding it per component instead would produce a duplicate
+# env entry, which the API server rejects.
 - name: MMDB_FILE_LOCATION
-  value: "/app/share/GeoLite2-City.mmdb"
+  value: {{ .Values.mmdbFileLocation | default "/app/share/GeoLite2-City.mmdb" | quote }}
 - name: TEMPORAL_HOST
   value: {{ include "posthog.temporalHost" . | quote }}
 - name: TEMPORAL_PORT

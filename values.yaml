@@ -115,6 +115,13 @@ secrets:
     captureLogsJwtSecret: CAPTURE_LOGS_JWT_SECRET
     livestreamJwtSecret: LIVESTREAM_JWT_SECRET
     internalApiSecret: INTERNAL_API_SECRET
+  # Optional. recording-api refuses to start in production without auth: it
+  # wants either RECORDING_API_JWT_SECRET, or RECORDING_API_ALLOW_LEGACY_SECRET
+  # with INTERNAL_API_SECRET. Set this to the key holding the JWT secret in your
+  # Secret; leave it empty to stay on the legacy path. Empty means the variable
+  # is not injected at all, so installs with an externally managed Secret that
+  # lacks the key keep working.
+  recordingApiJwtSecret: ""
   values:
     secretKey: ""
     encryptionSaltKeys: ""
@@ -126,6 +133,11 @@ secrets:
     captureLogsJwtSecret: ""
     livestreamJwtSecret: ""
     internalApiSecret: ""
+
+# Where the node image carries the MaxMind database. Override only if your
+# image places it elsewhere; the components that use GeoIP will not start
+# without it.
+mmdbFileLocation: "/app/share/GeoLite2-City.mmdb"
 
 images:
   app:
@@ -503,7 +515,21 @@ components:
     env:
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
       CDP_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
-      CYCLOTRON_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
+      # server.ts throws "PersonHog client is required for CDP" without these.
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ENABLED: "true"
+      # createCdpValkeyShadowPools throws without CDP_VALKEY_HOST: every CDP
+      # process mirrors its writes to a second store. There is no Valkey in this
+      # chart, so it defaults to the same Redis -- the shadow holds the same keys
+      # by design, so writing them twice into one instance is idempotent. Point
+      # it at a real Valkey to get the redundancy the dual-write is meant for.
+      CDP_VALKEY_HOST: "{{ include \"posthog.redisHost\" . }}"
+      CDP_VALKEY_PORT: "{{ include \"posthog.redisPort\" . }}"
+      # Renamed upstream: server.ts reads CYCLOTRON_NODE_DATABASE_URL at four
+      # call sites and aborts without it ("required for
+      # CdpCyclotronWorkerBatchResolve"). CYCLOTRON_DATABASE_URL is no longer
+      # read anywhere in nodejs/src.
+      CYCLOTRON_NODE_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
       OTEL_EXPORTER_OTLP_ENDPOINT: ""
     probes:
       readiness:
@@ -521,6 +547,10 @@ components:
     env:
       PLUGIN_SERVER_MODE: ingestion-v2-combined
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      # The AI scope hard-requires the client: PersonHogClientComponent.start()
+      # throws when createPersonHogClient returns null.
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ENABLED: "true"
   ingestionSessionReplay:
     enabled: true
     kind: Deployment
@@ -555,6 +585,10 @@ components:
     env:
       PLUGIN_SERVER_MODE: ingestion-errortracking
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      # error-tracking-server.ts: "PersonHog client is required for error
+      # tracking".
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ENABLED: "true"
   ingestionLogs:
     enabled: true
     kind: Deployment
