@@ -58,18 +58,19 @@ spec:
       # The ones removed here are pure profiling and duplicate what is already
       # available elsewhere: text_log repeats the server log that is on stdout,
       # trace_log and processors_profile_log are for profiling sessions, and the
-      # metric logs duplicate what Prometheus already scrapes. The ones kept are
-      # the ones actually used when debugging a slow query or a merge problem,
-      # and they get a retention window.
+      # metric logs duplicate what Prometheus already scrapes.
+      #
+      # No TTL is set here. The Altinity operator already writes one for
+      # query_log and part_log -- inside the engine definition, which is the only
+      # place ClickHouse accepts it ("If 'engine' is specified for system table,
+      # TTL parameters should be specified directly inside 'engine'"). Adding a
+      # second <ttl> element alongside it makes the server refuse to start.
+      # That is also why those two stayed at a manageable size while the
+      # unmanaged tables grew to 33 GiB.
       config.d/posthog_system_logs.xml: |
         <clickhouse>
           {{- range .Values.clickhouse.systemLogs.disabled }}
           <{{ . }} remove="1"/>
-          {{- end }}
-          {{- range .Values.clickhouse.systemLogs.retained }}
-          <{{ . }}>
-            <ttl>event_date + INTERVAL {{ $.Values.clickhouse.systemLogs.ttlDays }} DAY DELETE</ttl>
-          </{{ . }}>
           {{- end }}
         </clickhouse>
       {{- end }}

@@ -1318,7 +1318,6 @@ clickhouse:
   # ClickHouse defaults.
   systemLogs:
     trim: true
-    ttlDays: 7
     # Removed entirely: profiling and duplicated data.
     disabled:
       - text_log                      # repeats the server log on stdout
@@ -1330,14 +1329,6 @@ clickhouse:
       - asynchronous_metric_log       # 16 billion rows when measured
       - opentelemetry_span_log
       - zookeeper_log
-    # Kept, with a retention window: these are what you actually reach for when
-    # a query is slow or a merge misbehaves.
-    retained:
-      - query_log
-      - part_log
-      - error_log
-      - query_metric_log
-      - asynchronous_insert_log
 
   namedCollections:
     - msk_cluster
