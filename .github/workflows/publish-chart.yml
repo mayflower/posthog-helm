@@ -103,8 +103,9 @@ jobs:
       - name: Sign chart (keyless, GitHub OIDC)
         if: steps.existing.outputs.exists != 'true'
         run: |
-          cosign sign --yes \
-            "${{ steps.chart.outputs.repository }}/${{ steps.chart.outputs.name }}@${{ steps.push.outputs.digest }}"
+          # cosign takes a registry reference without the oci:// scheme Helm uses.
+          ref="${{ steps.chart.outputs.repository }}/${{ steps.chart.outputs.name }}@${{ steps.push.outputs.digest }}"
+          cosign sign --yes "${ref#oci://}"
 
       - name: Write summary
         run: |
