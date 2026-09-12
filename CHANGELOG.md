@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+- The bundled ClickHouse defines all nine Kafka named collections upstream's single-node config defines (`warpstream_shared`, `warpstream_cyclotron`, `warpstream_logs`, `warpstream_traces` and `warpstream_metrics` were missing), so migrations that name them no longer fail.
+
 ## 0.6.2
 
 - The app image runs as root again with only the seccomp profile: its Dockerfile ends as root and `bin/docker-server` drops privileges itself with `setpriv`, which fails when the pod already runs as uid 10001. The node image keeps uid 10001.

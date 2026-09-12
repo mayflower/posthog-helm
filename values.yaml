@@ -2728,11 +2728,20 @@ clickhouse:
       - opentelemetry_span_log
       - zookeeper_log
 
+  # Every Kafka-engine table names one of these; a missing one stops the
+  # migrate job with "There is no named collection". This is the set in
+  # upstream's docker/clickhouse/config.d/default.xml; diff against it after
+  # image bumps. All point at the same broker here.
   namedCollections:
     - msk_cluster
     - warpstream_ingestion
     - warpstream_calculated_events
     - warpstream_replay
+    - warpstream_shared
+    - warpstream_cyclotron
+    - warpstream_logs
+    - warpstream_traces
+    - warpstream_metrics
   macros:
     hostClusterType: online
     hostClusterRole: data
