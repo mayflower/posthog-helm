@@ -125,7 +125,17 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/posthog/posthog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          value: ghcr.io/mayflower/posthog-foss@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: defaults the app to the pure-MIT build on an immutable tag
+    template: workloads.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: web
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/mayflower/posthog-foss:[0-9a-f]{40}$
 
   - it: refuses mutable tags when told to
     template: workloads.yaml

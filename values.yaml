@@ -162,15 +162,28 @@ mmdbFileLocation: "/app/share/GeoLite2-City.mmdb"
 # that stay root or use a named user carry no context and get
 # defaultPodSecurityContext only.
 images:
+  # The Django app image. Upstream's ghcr.io/posthog/posthog bundles the
+  # ee/ directory, which is under the PostHog Enterprise License and is only
+  # licensed for production use with a subscription. PostHog publishes no
+  # image without it, so this chart defaults to a pure-MIT build from the
+  # mayflower fork (github.com/mayflower/posthog, branch feat/foss-image):
+  # ee/ replaced by a shim, the rest unchanged. It keeps upstream's uid 10001.
+  # Pinned to the commit it was built from; the master tag starts moving once
+  # that branch merges. Holders of an enterprise license can point this back
+  # at ghcr.io/posthog/posthog.
   app:
-    repository: ghcr.io/posthog/posthog
-    tag: master
+    repository: ghcr.io/mayflower/posthog-foss
+    tag: a6c726314d3e6c7cb3b878fdc87f39966a4bf5b9
     podSecurityContext: &posthogUser
       runAsNonRoot: true
       runAsUser: 10001
       runAsGroup: 10001
       seccompProfile:
         type: RuntimeDefault
+  # nodejs/ carries no enterprise code, so upstream's image is MIT as is.
+  # There is no node build at the FOSS commit yet; pin one to the same
+  # source revision as the app image once the fork's CI publishes it, since
+  # the two are released together upstream.
   node:
     repository: ghcr.io/posthog/posthog-node
     tag: master

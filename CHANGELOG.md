@@ -2,6 +2,7 @@
 
 ## 0.6.0
 
+- The app image defaults to `ghcr.io/mayflower/posthog-foss`, a pure-MIT build with the enterprise-licensed `ee/` directory replaced by a shim, pinned to its build commit. Upstream's `ghcr.io/posthog/posthog` bundles code that is only licensed for production with a subscription; set `images.app.repository` back to it if you hold one.
 - No Bitnami images remain. Bundled Postgres and ZooKeeper are chart components on the official `postgres` and `zookeeper` images, matching upstream's compose stack; the Bitnami subcharts are removed. Postgres creates the databases in `internal.postgres.extraDatabases` on first start. The ClickHouse operator's CRD hook uses `alpine/k8s` for kubectl, and the optional Kafka UI moved to the maintained `kafbat/kafka-ui` fork.
 - The bundled Redis and MinIO subcharts are gone. Valkey (`components.valkey`, StatefulSet with persistence) serves the Redis role and SeaweedFS (`components.objectStorage`) serves general object storage, with buckets and the S3 identity created at startup from `internal.objectStorage.buckets` and the chart's object storage credentials. The CDP shadow store is now `components.valkeyShadow`.
 - Bundled installs upgrading from 0.5.0 or earlier get empty stores, Postgres included: dump and restore Postgres, and copy Redis and bucket contents over before switching, or accept starting from scratch.
