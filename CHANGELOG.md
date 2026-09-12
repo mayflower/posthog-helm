@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.5
+
+- Temporal workers set `TEMPORAL_HEALTH_MAX_IDLE_SECONDS` alongside the health port: upstream starts the health server only when both are set, so the readiness probes added in 0.5.0 never had anything to talk to and the workers stayed unready.
+
 ## 0.6.4
 
 - `OIDC_RSA_PRIVATE_KEY` is injected from the chart Secret, generated as a 2048-bit RSA key when not supplied. Outside hobby mode the migrate job provisions OAuth applications and fails without it. Externally managed Secrets should add the key; the env ref is optional so pods still start without it.
