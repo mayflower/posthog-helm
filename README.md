@@ -186,6 +186,9 @@ For production, create a runtime secret and set `secrets.existingSecret`. The se
 - `CAPTURE_LOGS_JWT_SECRET`
 - `LIVESTREAM_JWT_SECRET`
 - `INTERNAL_API_SECRET`
+- `OIDC_RSA_PRIVATE_KEY` (PEM, e.g. `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048`), needed by the migrate job outside hobby mode
+- `BROWSERLESS_TOKEN` when `components.browserless` is enabled
+- `CLICKHOUSE_API_PASSWORD` when the chart runs ClickHouse through the operator
 
 It must also contain these keys when you do not configure the provider-specific external secret refs:
 

@@ -125,6 +125,9 @@ secrets:
     internalApiSecret: INTERNAL_API_SECRET
     browserlessToken: BROWSERLESS_TOKEN
     clickhouseApiPassword: CLICKHOUSE_API_PASSWORD
+    # PEM RSA private key the OAuth provider signs tokens with. Outside hobby
+    # mode the migrate job provisions OAuth applications and fails without it.
+    oidcRsaPrivateKey: OIDC_RSA_PRIVATE_KEY
     # Optional. recording-api refuses to start in production without auth: it
     # wants either RECORDING_API_JWT_SECRET, or RECORDING_API_ALLOW_LEGACY_SECRET
     # with INTERNAL_API_SECRET. Set this to the key holding the JWT secret in
@@ -149,6 +152,8 @@ secrets:
     internalApiSecret: ""
     browserlessToken: ""
     clickhouseApiPassword: ""
+    # Generated (2048-bit RSA) when empty; supply your own PEM to pin it.
+    oidcRsaPrivateKey: ""
 
 # Where the node image carries the MaxMind database. Override only if your
 # image places it elsewhere; the components that use GeoIP will not start

@@ -120,7 +120,11 @@ secrets.existingSecret or explicit secrets.values.
 {{- index $cache.existing .key | b64dec -}}
 {{- else -}}
 {{- if not (hasKey $cache.minted .key) -}}
+{{- if .rsa -}}
+{{- $_ := set $cache.minted .key (genPrivateKey "rsa") -}}
+{{- else -}}
 {{- $_ := set $cache.minted .key (randAlphaNum .length) -}}
+{{- end -}}
 {{- end -}}
 {{- index $cache.minted .key -}}
 {{- end -}}
@@ -544,6 +548,14 @@ falls back to the bundled component.
     secretKeyRef:
       name: {{ include "posthog.secretName" . }}
       key: {{ .Values.secrets.keys.internalApiSecret }}
+# Optional so an externally managed Secret without the key still starts;
+# the migrate job then fails at setup_tasks_oauth outside hobby mode.
+- name: OIDC_RSA_PRIVATE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.secretName" . }}
+      key: {{ .Values.secrets.keys.oidcRsaPrivateKey }}
+      optional: true
 - name: DATABASE_URL
   value: {{ include "posthog.postgresUrl" . | quote }}
 - name: PERSONS_DATABASE_URL

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.4
+
+- `OIDC_RSA_PRIVATE_KEY` is injected from the chart Secret, generated as a 2048-bit RSA key when not supplied. Outside hobby mode the migrate job provisions OAuth applications and fails without it. Externally managed Secrets should add the key; the env ref is optional so pods still start without it.
+
 ## 0.6.3
 
 - The bundled ClickHouse defines all nine Kafka named collections upstream's single-node config defines (`warpstream_shared`, `warpstream_cyclotron`, `warpstream_logs`, `warpstream_traces` and `warpstream_metrics` were missing), so migrations that name them no longer fail.
