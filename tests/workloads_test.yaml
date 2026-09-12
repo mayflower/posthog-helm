@@ -177,3 +177,18 @@ tests:
       - equal:
           path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
           value: RELEASE-NAME-posthog-valkey-shadow-data
+
+  - it: honours a component fullnameOverride for the object, its service host and the claim name
+    template: workloads.yaml
+    set:
+      components.zookeeper.fullnameOverride: zookeeper
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: zookeeper
+    asserts:
+      - equal:
+          path: metadata.name
+          value: zookeeper
+      - equal:
+          path: spec.serviceName
+          value: zookeeper

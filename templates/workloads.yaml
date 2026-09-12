@@ -19,6 +19,10 @@ metadata:
   labels:
     {{- include "posthog.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+  {{- with $component.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   {{- if eq $component.kind "StatefulSet" }}
   serviceName: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}

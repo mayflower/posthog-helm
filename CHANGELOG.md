@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+- `components.<name>.fullnameOverride` names a component's objects directly, so a chart component can take over a StatefulSet and its claims from a subchart the chart used to bundle under a fixed name (the ZooKeeper `data-zookeeper-0` claim, for instance).
+- `components.<name>.annotations` is applied to Deployments and StatefulSets, not only Jobs.
+- `CLICKHOUSE_OPS_CLUSTER` joins the cluster aliases mapped to the configured cluster; Django defaults it to `ops` and a migration fails without it.
+- The app image defaults to the pure-MIT `posthog-foss` build (see 0.6.0 notes).
+
 ## 0.6.0
 
 - The app image defaults to `ghcr.io/mayflower/posthog-foss`, a pure-MIT build with the enterprise-licensed `ee/` directory replaced by a shim, pinned to its build commit. Upstream's `ghcr.io/posthog/posthog` bundles code that is only licensed for production with a subscription; set `images.app.repository` back to it if you hold one.

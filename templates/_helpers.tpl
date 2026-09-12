@@ -14,8 +14,21 @@
 {{- kebabcase . -}}
 {{- end -}}
 
+{{/*
+<release>-<chart>-<component>, unless the component sets fullnameOverride.
+The override exists so a chart component can take over a StatefulSet and its
+claims from a subchart the chart used to bundle under a fixed name.
+*/}}
 {{- define "posthog.componentFullname" -}}
+{{- $override := "" -}}
+{{- if hasKey .root.Values.components (toString .name) -}}
+{{- $override = default "" (index .root.Values.components (toString .name)).fullnameOverride -}}
+{{- end -}}
+{{- if $override -}}
+{{- $override | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
 {{- printf "%s-%s" (include "posthog.fullname" .root) (include "posthog.componentName" .name) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "posthog.serviceHost" -}}
@@ -673,6 +686,10 @@ falls back to the bundled component.
 - name: CLICKHOUSE_AI_EVENTS_CLUSTER
   value: {{ . | quote }}
 - name: CLICKHOUSE_LOGS_CLUSTER
+  value: {{ . | quote }}
+# Django defaults this to "ops" for query_log_archive; a migration fails with
+# "Requested cluster 'ops' not found" unless it maps to a real cluster.
+- name: CLICKHOUSE_OPS_CLUSTER
   value: {{ . | quote }}
 {{- end }}
 - name: CLICKHOUSE_SATELLITE_CLUSTERS
