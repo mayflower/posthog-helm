@@ -53,6 +53,23 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: {{ include "posthog.fullname" . }}-postgres-init
+  labels:
+    {{- include "posthog.labels" . | nindent 4 }}
+data:
+  # Sourced by the official image's entrypoint on first initialisation only.
+  10-create-databases.sh: |
+    set -eu
+    for db in {{ join " " .Values.internal.postgres.extraDatabases }}; do
+      if [ -z "$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_database WHERE datname='$db'")" ]; then
+        psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE DATABASE $db;"
+        psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT ALL PRIVILEGES ON DATABASE $db TO $POSTGRES_USER;"
+      fi
+    done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: {{ include "posthog.fullname" . }}-livestream
   labels:
     {{- include "posthog.labels" . | nindent 4 }}

@@ -32,9 +32,9 @@ spec:
   {{- with $component.activeDeadlineSeconds }}
   activeDeadlineSeconds: {{ . }}
   {{- end }}
-  {{- with $component.ttlSecondsAfterFinished }}
-  ttlSecondsAfterFinished: {{ . }}
-  {{- end }}
+  # Succeeded hook jobs are removed by the hook delete policy; this bounds how
+  # long a failed one and its pods stay around for inspection.
+  ttlSecondsAfterFinished: {{ default 86400 $component.ttlSecondsAfterFinished }}
   template:
     metadata:
       labels:
@@ -57,6 +57,7 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ include "posthog.serviceAccountName" $root }}
+      automountServiceAccountToken: {{ $root.Values.serviceAccount.automountToken }}
       {{- with $root.Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -64,9 +65,9 @@ spec:
       {{- if $priorityClassName }}
       priorityClassName: {{ $priorityClassName | quote }}
       {{- end }}
-      {{- with (default $root.Values.defaultPodSecurityContext $component.podSecurityContext) }}
+      {{- with (include "posthog.podSecurityContext" (dict "root" $root "component" $component)) }}
       securityContext:
-        {{- toYaml . | nindent 8 }}
+        {{- . | nindent 8 }}
       {{- end }}
       {{- with $nodeSelector }}
       nodeSelector:

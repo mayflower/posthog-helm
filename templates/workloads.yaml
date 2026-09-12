@@ -55,6 +55,9 @@ spec:
         {{- end }}
       annotations:
         checksum/secrets: {{ include (print $.Template.BasePath "/secrets.yaml") $root | sha256sum }}
+        {{- if $configMounts }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") $root | sha256sum }}
+        {{- end }}
         {{- with $root.Values.global.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -63,6 +66,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "posthog.serviceAccountName" $root }}
+      automountServiceAccountToken: {{ $root.Values.serviceAccount.automountToken }}
       {{- if hasKey $component "terminationGracePeriodSeconds" }}
       terminationGracePeriodSeconds: {{ $component.terminationGracePeriodSeconds }}
       {{- else if not (kindIs "invalid" $root.Values.global.terminationGracePeriodSeconds) }}
@@ -75,9 +79,9 @@ spec:
       {{- if $priorityClassName }}
       priorityClassName: {{ $priorityClassName | quote }}
       {{- end }}
-      {{- with (default $root.Values.defaultPodSecurityContext $component.podSecurityContext) }}
+      {{- with (include "posthog.podSecurityContext" (dict "root" $root "component" $component)) }}
       securityContext:
-        {{- toYaml . | nindent 8 }}
+        {{- . | nindent 8 }}
       {{- end }}
       {{- with $nodeSelector }}
       nodeSelector:

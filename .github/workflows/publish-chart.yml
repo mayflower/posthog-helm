@@ -19,6 +19,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -84,11 +85,26 @@ jobs:
           helm package . --destination dist
 
       - name: Publish chart
+        id: push
         if: steps.existing.outputs.exists != 'true'
+        shell: bash
         run: |
+          set -euo pipefail
           helm push \
             "dist/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz" \
-            "${{ steps.chart.outputs.repository }}"
+            "${{ steps.chart.outputs.repository }}" 2>&1 | tee /tmp/push.log
+          digest="$(sed -n 's/^Digest: //p' /tmp/push.log)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        if: steps.existing.outputs.exists != 'true'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign chart (keyless, GitHub OIDC)
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          cosign sign --yes \
+            "${{ steps.chart.outputs.repository }}/${{ steps.chart.outputs.name }}@${{ steps.push.outputs.digest }}"
 
       - name: Write summary
         run: |
@@ -101,6 +117,8 @@ jobs:
             echo "- Chart: \`${chart_ref}\`"
             echo "- Version: \`${chart_version}\`"
             echo "- Existing version skipped: \`${{ steps.existing.outputs.exists }}\`"
+            echo "- Digest: \`${{ steps.push.outputs.digest }}\`"
+            echo "- Verify: \`cosign verify --certificate-identity-regexp 'https://github.com/${GITHUB_REPOSITORY}/' --certificate-oidc-issuer https://token.actions.githubusercontent.com ${chart_ref}:${chart_version}\`"
             echo
             echo "\`\`\`bash"
             echo "helm install posthog ${chart_ref} --version ${chart_version}"

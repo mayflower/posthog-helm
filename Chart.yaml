@@ -2,55 +2,43 @@ apiVersion: v2
 name: posthog
 description: Current Helm chart for the PostHog Kubernetes service topology.
 type: application
-version: 0.3.0
+version: 0.6.0
 appVersion: "master"
 kubeVersion: ">=1.28.0-0"
 home: https://posthog.com
+icon: https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/posthog-icon.svg
+keywords:
+  - posthog
+  - analytics
+  - product-analytics
+  - session-replay
+  - feature-flags
+  - clickhouse
+maintainers:
+  - name: Johann-Peter Hartmann
+    url: https://github.com/johannhartmann
 sources:
+  - https://github.com/mayflower/posthog-helm
   - https://github.com/PostHog/posthog
-  - https://github.com/PostHog/charts-clickhouse
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/changes: |
+    - kind: changed
+      description: Bundled Postgres and ZooKeeper are chart-native StatefulSets on the official images; no Bitnami images remain
+    - kind: added
+      description: Image digests, restricted pod security defaults, resource requests, readiness probes, NetworkPolicy, config checksums
+    - kind: changed
+      description: Bundled Redis and MinIO replaced by chart-native Valkey and SeaweedFS components
+    - kind: removed
+      description: cert-manager, Prometheus, Grafana, Loki and Promtail are no longer chart dependencies
 dependencies:
-  - name: postgresql
-    version: 18.6.4
-    repository: https://charts.bitnami.com/bitnami
-    condition: postgresql.enabled
-  - name: redis
-    version: 25.5.3
-    repository: https://charts.bitnami.com/bitnami
-    condition: redis.enabled
-  - name: minio
-    version: 17.0.21
-    repository: https://charts.bitnami.com/bitnami
-    condition: minio.enabled
   - name: redpanda
     version: 26.1.3
     repository: https://charts.redpanda.com
     condition: subcharts.redpanda.enabled
-  - name: zookeeper
-    version: 13.8.7
-    repository: https://charts.bitnami.com/bitnami
-    condition: zookeeper.enabled
   - name: altinity-clickhouse-operator
     version: 0.27.0
     repository: https://docs.altinity.com/clickhouse-operator
     condition: clickhouse.operator.enabled
-  - name: grafana
-    version: 10.5.15
-    repository: https://grafana.github.io/helm-charts
-    condition: grafana.enabled
-  - name: loki
-    version: 7.0.0
-    repository: https://grafana.github.io/helm-charts
-    condition: loki.enabled
-  - name: promtail
-    version: 6.17.1
-    repository: https://grafana.github.io/helm-charts
-    condition: promtail.enabled
-  - name: prometheus
-    version: 29.6.0
-    repository: https://prometheus-community.github.io/helm-charts
-    condition: prometheus.enabled
-  - name: cert-manager
-    version: v1.20.2
-    repository: https://charts.jetstack.io
-    condition: cert-manager.enabled

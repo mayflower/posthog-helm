@@ -1,0 +1,81 @@
+suite: ingress
+templates:
+  - ingress.yaml
+tests:
+  - it: renders the rewrite ingress only for an nginx class
+    set:
+      ingress.className: nginx
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/rewrite-target"]
+          value: /$2
+        documentIndex: 1
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /livestream(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: RELEASE-NAME-posthog-livestream
+                port:
+                  number: 8080
+        documentIndex: 1
+
+  - it: keeps livestream as a plain prefix for other controllers
+    set:
+      ingress.className: traefik
+    asserts:
+      - hasDocuments:
+          count: 1
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /livestream
+            pathType: Prefix
+            backend:
+              service:
+                name: RELEASE-NAME-posthog-livestream
+                port:
+                  number: 8080
+
+  - it: routes the bucket path to the bundled object store in bundled mode only
+    asserts:
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /posthog
+            pathType: Prefix
+            backend:
+              service:
+                name: RELEASE-NAME-posthog-object-storage
+                port:
+                  number: 9000
+        documentIndex: 0
+
+  - it: routes the upstream capture and flags paths
+    asserts:
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /i/v1/analytics/events
+            pathType: Prefix
+            backend:
+              service:
+                name: RELEASE-NAME-posthog-capture
+                port:
+                  number: 3000
+        documentIndex: 0
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /api/feature_flag/local_evaluation
+            pathType: Prefix
+            backend:
+              service:
+                name: RELEASE-NAME-posthog-feature-flags
+                port:
+                  number: 3001
+        documentIndex: 0

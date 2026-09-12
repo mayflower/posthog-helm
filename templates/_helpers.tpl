@@ -43,9 +43,22 @@ app.kubernetes.io/name: {{ include "posthog.name" . }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/part-of: posthog
 {{- with .Values.global.labels }}
 {{ toYaml . }}
 {{- end }}
+{{- end -}}
+
+{{/*
+Pod security context for a component: its own, else the one declared on the
+image family it runs (images.<name>.podSecurityContext, which knows the
+numeric uid the image switches to), else the chart default.
+*/}}
+{{- define "posthog.podSecurityContext" -}}
+{{- $image := index .root.Values.images .component.image -}}
+{{- $ctx := default (default .root.Values.defaultPodSecurityContext $image.podSecurityContext) .component.podSecurityContext -}}
+{{- with $ctx }}{{ toYaml . }}{{ end -}}
 {{- end -}}
 
 {{- define "posthog.selectorLabels" -}}
@@ -218,11 +231,15 @@ redis-password
 {{- $imageName := .image -}}
 {{- $image := index $root.Values.images $imageName -}}
 {{- $repository := required (printf "images.%s.repository is required" $imageName) $image.repository -}}
-{{- $tag := required (printf "images.%s.tag is required" $imageName) $image.tag -}}
+{{- if $image.digest -}}
+{{- printf "%s@%s" $repository $image.digest -}}
+{{- else -}}
+{{- $tag := required (printf "images.%s.tag or images.%s.digest is required" $imageName $imageName) $image.tag -}}
 {{- if and (not $root.Values.global.allowMutableImageTags) (or (eq $tag "latest") (eq $tag "master")) -}}
-{{- fail (printf "images.%s.tag is mutable; set global.allowMutableImageTags=true or provide an immutable tag" $imageName) -}}
+{{- fail (printf "images.%s.tag is mutable; set global.allowMutableImageTags=true, provide an immutable tag, or set images.%s.digest" $imageName $imageName) -}}
 {{- end -}}
 {{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "posthog.postgresHost" -}}
@@ -401,7 +418,7 @@ falls back to the bundled component.
 {{- end -}}
 
 {{- define "posthog.objectStorageEndpoint" -}}
-{{- if eq .Values.profile.mode "external" -}}{{ required "external.objectStorage.endpoint is required in external mode" .Values.external.objectStorage.endpoint }}{{- else -}}{{ .Values.internal.objectStorage.endpoint }}{{- end -}}
+{{- if eq .Values.profile.mode "external" -}}{{ required "external.objectStorage.endpoint is required in external mode" .Values.external.objectStorage.endpoint }}{{- else -}}{{ tpl .Values.internal.objectStorage.endpoint . }}{{- end -}}
 {{- end -}}
 
 {{- define "posthog.objectStoragePublicEndpoint" -}}
@@ -425,7 +442,7 @@ falls back to the bundled component.
 {{- end -}}
 
 {{- define "posthog.sessionRecordingEndpoint" -}}
-{{- if eq .Values.profile.mode "external" -}}{{ required "external.sessionRecording.endpoint is required in external mode" .Values.external.sessionRecording.endpoint }}{{- else -}}{{ .Values.internal.sessionRecording.endpoint }}{{- end -}}
+{{- if eq .Values.profile.mode "external" -}}{{ required "external.sessionRecording.endpoint is required in external mode" .Values.external.sessionRecording.endpoint }}{{- else -}}{{ tpl .Values.internal.sessionRecording.endpoint . }}{{- end -}}
 {{- end -}}
 
 {{- define "posthog.temporalHost" -}}
@@ -561,6 +578,52 @@ falls back to the bundled component.
   value: {{ include "posthog.kafkaHosts" . | quote }}
 - name: CDP_API_URL
   value: {{ include "posthog.serviceUrl" (dict "root" . "name" "plugins" "port" 6738) | quote }}
+# Django defaults this to localhost:3001; cohort, user, flag and dashboard
+# endpoints call it for flag definitions and local evaluation.
+- name: FEATURE_FLAGS_SERVICE_URL
+  value: {{ include "posthog.serviceUrl" (dict "root" . "name" "featureFlags" "port" 3001) | quote }}
+{{- if .Values.components.browserless.enabled }}
+# Image exports raise without a CDP URL; heatmap screenshots use the HTTP one.
+# The token refs are optional so an externally managed Secret without the key
+# still lets every pod start; exports then fail with an auth error instead.
+- name: BROWSERLESS_CDP_URL
+  value: {{ printf "ws://%s:3000" (include "posthog.serviceHost" (dict "root" . "name" "browserless")) | quote }}
+- name: HEATMAP_BROWSERLESS_URL
+  value: {{ include "posthog.serviceUrl" (dict "root" . "name" "browserless" "port" 3000) | quote }}
+- name: BROWSERLESS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.secretName" . }}
+      key: {{ .Values.secrets.keys.browserlessToken }}
+      optional: true
+- name: HEATMAP_BROWSERLESS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "posthog.secretName" . }}
+      key: {{ .Values.secrets.keys.browserlessToken }}
+      optional: true
+{{- end }}
+{{- if eq .Values.profile.mode "bundled" }}
+# Data warehouse and data modeling. Outside debug mode Django assumes real
+# AWS S3 for the warehouse bucket; USE_LOCAL_SETUP routes it through the
+# bundled object store with these credentials instead.
+- name: USE_LOCAL_SETUP
+  value: "true"
+- name: DATAWAREHOUSE_BUCKET
+  value: {{ .Values.internal.objectStorage.dataWarehouseBucket | quote }}
+- name: BUCKET_URL
+  value: {{ printf "s3://%s" .Values.internal.objectStorage.dataWarehouseBucket | quote }}
+- name: BUCKET_PATH
+  value: {{ .Values.internal.objectStorage.dataWarehouseBucket | quote }}
+- name: DATAWAREHOUSE_BUCKET_DOMAIN
+  value: {{ include "posthog.objectStorageEndpoint" . | trimPrefix "http://" | trimPrefix "https://" | quote }}
+- name: DATAWAREHOUSE_LOCAL_BUCKET_REGION
+  value: {{ .Values.internal.objectStorage.region | quote }}
+- name: DATAWAREHOUSE_LOCAL_ACCESS_KEY
+  value: "$(OBJECT_STORAGE_ACCESS_KEY_ID)"
+- name: DATAWAREHOUSE_LOCAL_ACCESS_SECRET
+  value: "$(OBJECT_STORAGE_SECRET_ACCESS_KEY)"
+{{- end }}
 # Must match where the node image actually carries the database. The plugin
 # server and the error-tracking consumer abort with ENOENT if it is missing, and
 # there is no switch to run without GeoIP -- only MMDB_FILE_LOCATION and

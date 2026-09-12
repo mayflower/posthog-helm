@@ -1,0 +1,35 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- /*
+Default-deny ingress for every chart-managed pod, then allow traffic from
+pods in the release namespace (the components talk to each other), from
+namespaces matching networkPolicy.ingress.namespaceSelector (the ingress
+controller, Prometheus), and whatever networkPolicy.ingress.extraRules adds.
+Egress is left open: the components reach external SaaS, SMTP and object
+storage endpoints that differ per install. Subchart pods (Postgres, Redis,
+Kafka, ClickHouse) are not selected; policy them with their own charts.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "posthog.fullname" . }}
+  labels:
+    {{- include "posthog.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "posthog.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    {{- with .Values.networkPolicy.ingress.namespaceSelector }}
+    - from:
+        - namespaceSelector:
+            {{- toYaml . | nindent 12 }}
+    {{- end }}
+    {{- with .Values.networkPolicy.ingress.extraRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

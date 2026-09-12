@@ -1,0 +1,169 @@
+suite: workloads
+templates:
+  - workloads.yaml
+  - secrets.yaml
+  - configmaps.yaml
+tests:
+  - it: renders every default component with requests, seccomp and no token automount
+    template: workloads.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - exists:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: runs the app image as uid 10001 and the rust images as nobody
+    template: workloads.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 10001
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65534
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: capture
+
+  - it: gives node and django clients a bare host:port PersonHog address
+    template: workloads.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: plugins
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PERSONHOG_ADDR
+            value: RELEASE-NAME-posthog-personhog-router:50052
+
+  - it: gives the rust property-defs client a URL
+    template: workloads.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: property-defs
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PERSONHOG_ADDR
+            value: http://RELEASE-NAME-posthog-personhog-router:50052
+
+  - it: sets the feature flags database urls the rust service reads
+    template: workloads.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: feature-flags
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WRITE_DATABASE_URL
+            value: postgres://posthog:posthog@RELEASE-NAME-posthog-postgres:5432/posthog
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PERSONS_READ_DATABASE_URL
+            value: postgres://posthog:posthog@RELEASE-NAME-posthog-postgres:5432/posthog
+
+  - it: points cymbal at the resolution service and capture at the error tracking topic
+    template: workloads.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CYMBAL_REMOTE_RESOLUTION_HOST
+            value: RELEASE-NAME-posthog-cymbal-resolution
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: cymbal
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAFKA_ERROR_TRACKING_TOPIC
+            value: ingestion-errortracking-main
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: capture
+
+  - it: uses a separate valkey for the CDP shadow store
+    template: workloads.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: plugins
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CDP_VALKEY_HOST
+            value: RELEASE-NAME-posthog-valkey-shadow
+
+  - it: carries a secrets checksum on every workload
+    template: workloads.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/secrets"]
+          pattern: ^[a-f0-9]{64}$
+
+  - it: honours a digest over a tag
+    template: workloads.yaml
+    set:
+      images.app.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: web
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/posthog/posthog@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: refuses mutable tags when told to
+    template: workloads.yaml
+    set:
+      global.allowMutableImageTags: false
+    asserts:
+      - failedTemplate:
+          errorPattern: images\.[a-zA-Z]+\.tag is mutable
+
+  - it: uses rediss urls when redis tls is on in external mode
+    template: workloads.yaml
+    values:
+      - ../examples/external-values.yaml
+    set:
+      external.redis.tls: true
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: web
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_URL
+            value: rediss://:$(REDIS_PASSWORD)@redis.example.com:6379/0
+
+  - it: gives deployments with persistence a claim and a recreate strategy
+    template: workloads.yaml
+    set:
+      components.valkeyShadow.persistence.enabled: true
+      components.valkeyShadow.persistence.size: 1Gi
+      components.valkeyShadow.persistence.mountPath: /data
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: valkey-shadow
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          value: RELEASE-NAME-posthog-valkey-shadow-data

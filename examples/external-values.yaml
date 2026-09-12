@@ -1,17 +1,9 @@
 profile:
   mode: external
 
-postgresql:
-  enabled: false
-redis:
-  enabled: false
-minio:
-  enabled: false
 subcharts:
   redpanda:
     enabled: false
-zookeeper:
-  enabled: false
 clickhouse:
   enabled: false
   operator:
@@ -108,6 +100,14 @@ components:
   temporal:
     enabled: false
   seaweedfs:
+    enabled: false
+  objectStorage:
+    enabled: false
+  valkey:
+    enabled: false
+  postgres:
+    enabled: false
+  zookeeper:
     enabled: false
   kafkaInit:
     enabled: true

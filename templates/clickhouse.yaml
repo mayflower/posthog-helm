@@ -7,11 +7,11 @@ metadata:
     {{- include "posthog.labels" . | nindent 4 }}
 spec:
   configuration:
-    {{- if .Values.zookeeper.enabled }}
+    {{- if .Values.components.zookeeper.enabled }}
     zookeeper:
       nodes:
-        - host: zookeeper
-          port: {{ .Values.zookeeper.service.ports.client }}
+        - host: {{ include "posthog.serviceHost" (dict "root" . "name" "zookeeper") }}
+          port: 2181
     {{- end }}
     clusters:
       - name: {{ .Values.clickhouse.clusterName }}
@@ -35,7 +35,11 @@ spec:
       api/networks/ip:
         - "::/0"
         - 0.0.0.0/0
-      api/password: apipass
+      api/password:
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "posthog.secretName" . }}
+            key: {{ .Values.secrets.keys.clickhouseApiPassword }}
     settings:
       # ClickHouse ships with logger.level=debug and console_log_level=trace.
       # On an idle deployment that produced 116 MiB of log per hour -- 2.8 GiB a

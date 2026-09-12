@@ -30,9 +30,15 @@
       "additionalProperties": false,
       "properties": {
         "repository": { "$ref": "#/$defs/nonEmptyString" },
-        "tag": { "$ref": "#/$defs/nonEmptyString" }
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "podSecurityContext": { "type": "object" }
       },
-      "required": ["repository", "tag"]
+      "required": ["repository"],
+      "anyOf": [
+        { "required": ["tag"], "properties": { "tag": { "$ref": "#/$defs/nonEmptyString" } } },
+        { "required": ["digest"] }
+      ]
     },
     "port": {
       "type": "object",

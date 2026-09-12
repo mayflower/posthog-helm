@@ -65,6 +65,9 @@ kafka:
     - clickhouse_session_replay_features
     - clickhouse_performance_events
     - clickhouse_heatmap_events
+    - heatmaps_ingestion
+    - ingestion-clientwarnings-main-1
+    - clickhouse_flag_evaluations
     - clickhouse_ai_events_json
     - log_entries
     - cdp_function_overflow
@@ -120,6 +123,8 @@ secrets:
     captureLogsJwtSecret: CAPTURE_LOGS_JWT_SECRET
     livestreamJwtSecret: LIVESTREAM_JWT_SECRET
     internalApiSecret: INTERNAL_API_SECRET
+    browserlessToken: BROWSERLESS_TOKEN
+    clickhouseApiPassword: CLICKHOUSE_API_PASSWORD
     # Optional. recording-api refuses to start in production without auth: it
     # wants either RECORDING_API_JWT_SECRET, or RECORDING_API_ALLOW_LEGACY_SECRET
     # with INTERNAL_API_SECRET. Set this to the key holding the JWT secret in
@@ -142,61 +147,116 @@ secrets:
     captureLogsJwtSecret: ""
     livestreamJwtSecret: ""
     internalApiSecret: ""
+    browserlessToken: ""
+    clickhouseApiPassword: ""
 
 # Where the node image carries the MaxMind database. Override only if your
 # image places it elsewhere; the components that use GeoIP will not start
 # without it.
 mmdbFileLocation: "/app/share/GeoLite2-City.mmdb"
 
+# Every entry takes repository and tag, or repository and digest
+# (sha256:...), which wins over the tag. podSecurityContext here is the
+# family default for every component running the image: the PostHog app and
+# node images switch to uid 10001, the Rust images to nobody (65534). Images
+# that stay root or use a named user carry no context and get
+# defaultPodSecurityContext only.
 images:
   app:
     repository: ghcr.io/posthog/posthog
     tag: master
+    podSecurityContext: &posthogUser
+      runAsNonRoot: true
+      runAsUser: 10001
+      runAsGroup: 10001
+      seccompProfile:
+        type: RuntimeDefault
   node:
     repository: ghcr.io/posthog/posthog-node
     tag: master
+    podSecurityContext: *posthogUser
   capture:
     repository: ghcr.io/posthog/posthog/capture
     tag: master
+    podSecurityContext: &rustUser
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      seccompProfile:
+        type: RuntimeDefault
   captureLogs:
     repository: ghcr.io/posthog/posthog/capture-logs
     tag: master
+    podSecurityContext: *rustUser
   propertyDefs:
     repository: ghcr.io/posthog/posthog/property-defs-rs
     tag: master
+    podSecurityContext: *rustUser
   featureFlags:
     repository: ghcr.io/posthog/posthog/feature-flags
     tag: master
+    podSecurityContext: *rustUser
   personhogReplica:
     repository: ghcr.io/posthog/posthog/personhog-replica
     tag: master
+    podSecurityContext: *rustUser
   personhogRouter:
     repository: ghcr.io/posthog/posthog/personhog-router
     tag: master
+    podSecurityContext: *rustUser
   hypercache:
     repository: ghcr.io/posthog/posthog/hypercache-server
     tag: master
+    podSecurityContext: *rustUser
   livestream:
     repository: ghcr.io/posthog/posthog/livestream
     tag: master
   cyclotronJanitor:
     repository: ghcr.io/posthog/posthog/cyclotron-janitor
     tag: master
+    podSecurityContext: *rustUser
   cymbal:
     repository: ghcr.io/posthog/posthog/cymbal
     tag: master
+    podSecurityContext: *rustUser
   embeddingWorker:
     repository: ghcr.io/posthog/posthog/embedding-worker
     tag: master
+    podSecurityContext: *rustUser
   batchImportWorker:
     repository: ghcr.io/posthog/posthog/batch-import-worker
     tag: master
+    podSecurityContext: *rustUser
   recordingRasterizer:
     repository: ghcr.io/posthog/posthog-recording-rasterizer
     tag: master
+    podSecurityContext: *posthogUser
   redpandaTools:
     repository: docker.redpanda.com/redpandadata/redpanda
-    tag: v25.1.9
+    tag: v26.1.6
+  # Official images, as in upstream's compose stack. Both drop to their
+  # service user through gosu only when started as root with the setuid
+  # capabilities the chart removes, so the pods run as that uid directly.
+  postgres:
+    repository: postgres
+    tag: 15.12-alpine
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 70
+      runAsGroup: 70
+      fsGroup: 70
+      seccompProfile:
+        type: RuntimeDefault
+  zookeeper:
+    repository: zookeeper
+    tag: "3.9.3"
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
   caddy:
     repository: caddy
     tag: "2.10.2"
@@ -207,8 +267,9 @@ images:
     repository: mher/flower
     tag: 2.0.0
   kafkaUi:
-    repository: provectuslabs/kafka-ui
-    tag: v0.7.2
+    # Maintained fork of the archived provectuslabs/kafka-ui; same env vars.
+    repository: ghcr.io/kafbat/kafka-ui
+    tag: v1.3.0
   temporal:
     repository: temporalio/auto-setup
     tag: 1.26.2
@@ -250,6 +311,18 @@ images:
   valkey:
     repository: valkey/valkey
     tag: 8.1-alpine
+    # The image switches to its valkey user (999) only when started as root
+    # with the setuid capabilities the chart drops, so run as it directly.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
+  browserless:
+    repository: ghcr.io/browserless/chromium
+    tag: v2.51.2
   duckgres:
     repository: ghcr.io/posthog/duckgres
     tag: 5cfca88a52f366765fcdb122056e7ad3f038ec4f
@@ -329,13 +402,24 @@ external:
 
 internal:
   postgres:
-    host: db
+    host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"postgres\") }}"
     port: 5432
     database: posthog
     user: posthog
     password: posthog
+    # Created on first start next to the main database, mirroring upstream's
+    # docker/postgres-init-scripts.
+    extraDatabases:
+      - posthog_persons
+      - posthog_flags
+      - cyclotron
+      - cyclotron_node
+      - behavioral_cohorts
+      - flags_read_store
+      - ducklake
   redis:
-    host: redis7-master
+    # The bundled Valkey component below; any Redis-compatible endpoint works.
+    host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"valkey\") }}"
     port: 6379
     database: 0
     tls: false
@@ -350,18 +434,27 @@ internal:
     cluster: posthog
     migrationsCluster: ""
   objectStorage:
-    endpoint: http://objectstorage:9000
+    # The bundled SeaweedFS component (objectStorage below).
+    endpoint: "http://{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"objectStorage\") }}:9000"
     publicEndpoint: ""
     bucket: posthog
     region: us-east-1
+    # Data warehouse and data modeling write Delta tables here.
+    dataWarehouseBucket: data-warehouse
+    # Created by the objectStorage component at startup.
+    buckets:
+      - posthog
+      - ai-blobs
+      - data-warehouse
+      - ducklake-dev
   sessionRecording:
-    endpoint: http://seaweedfs:8333
+    endpoint: "http://{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"seaweedfs\") }}:8333"
     bucket: posthog
     region: us-east-1
     accessKey: any
     secretKey: any
   valkey:
-    host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"valkey\") }}"
+    host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"valkeyShadow\") }}"
     port: 6379
   temporal:
     host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"temporal\") }}"
@@ -400,7 +493,7 @@ routing:
     # subchart's defaultBuckets below is a plain list and must name the same
     # bucket; Helm cannot template subchart values.
     path: ""
-    host: objectstorage
+    host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"objectStorage\") }}"
     port: 9000
   # Mirrors the upstream Caddy proxy in docker-compose.base.yml. More specific
   # paths come first for controllers that match in list order.
@@ -474,14 +567,34 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
+  # Nothing in the chart talks to the Kubernetes API.
+  automountToken: false
 
-defaultPodSecurityContext: {}
+# Opt-in default-deny ingress for chart pods; see templates/networkpolicy.yaml.
+networkPolicy:
+  enabled: false
+  ingress:
+    # Namespaces allowed in besides the release namespace, e.g. the ingress
+    # controller and Prometheus: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+    namespaceSelector: {}
+    extraRules: []
+
+# Applied when neither the component nor its image family sets one.
+defaultPodSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
 defaultSecurityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop: ["ALL"]
 
-defaultResources: {}
+# Requests only, so the scheduler can pack nodes and the HPA has a baseline;
+# no limits, because the right ceiling depends on your traffic. Components
+# below override where the default is clearly wrong for them.
+defaultResources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
 
 monitoring:
   serviceMonitor:
@@ -502,6 +615,10 @@ components:
     kind: Deployment
     image: app
     replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
     command: ["./bin/docker-server"]
     securityContext:
       allowPrivilegeEscalation: false
@@ -555,6 +672,10 @@ components:
     kind: Deployment
     image: app
     replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
     command: ["./bin/docker-worker-celery"]
     # RedBeat holds a distributed lock, so several workers with the scheduler
     # do not double-schedule; split the scheduler into its own single-replica
@@ -578,12 +699,609 @@ components:
     kind: Deployment
     image: app
     replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
     command: ["./bin/temporal-django-worker"]
+    # No --task-queue: serves general-purpose-task-queue.
+  # Temporal workers. A worker serves exactly one task queue and, outside of
+  # debug mode, every product has its own queue, so a single worker on the
+  # general-purpose queue (temporalDjangoWorker above) leaves batch exports,
+  # warehouse syncs, error tracking lifecycle and the rest without anyone to
+  # run them. Each of these is a full Django process; disable the ones for
+  # products you do not use to save memory.
+  temporalWorkerBatchExports:
+    # Batch exports to S3, BigQuery, Snowflake and the rest.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "batch-exports-task-queue"]
+  temporalWorkerSyncBatchExports:
+    # Synchronous batch export helpers; upstream's queue name is historical.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "no-sandbox-python-django"]
+  temporalWorkerDataWarehouse:
+    # External data source syncs.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "data-warehouse-task-queue"]
+  temporalWorkerDataWarehouseMetadata:
+    # Warehouse table metadata refreshes.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "data-warehouse-metadata-task-queue"]
+  temporalWorkerDataWarehouseCdpProducer:
+    # Feeds warehouse table changes into CDP destinations.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "data-warehouse-cdp-producer-task-queue"]
+  temporalWorkerDataModeling:
+    # Saved query materialisation.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "data-modeling-task-queue"]
+  temporalWorkerErrorTracking:
+    # Issue grouping, symbol set housekeeping.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "error-tracking-task-queue"]
+  temporalWorkerErrorTrackingLifecycle:
+    # Issue auto-resolution and lifecycle transitions.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "error-tracking-lifecycle-task-queue"]
+  temporalWorkerSessionReplay:
+    # Replay exports and surfacing scoring sweeps.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "session-replay-task-queue"]
+  temporalWorkerExperiments:
+    # Experiment result recalculation.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "experiments-recalculation-task-queue"]
+  temporalWorkerLlmAnalytics:
+    # LLM analytics background work.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "llm-analytics-task-queue"]
+  temporalWorkerWeeklyDigest:
+    # Weekly digest emails.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "weekly-digest-task-queue"]
+  temporalWorkerEventScreenshots:
+    # Event screenshots; needs the browserless component.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "event-screenshots-task-queue"]
+  temporalWorkerLogsAlerting:
+    # Log alert evaluation.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "logs-alerting-task-queue"]
+  temporalWorkerLogsVolumeTick:
+    # Log volume accounting.
+    enabled: true
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "logs-volume-tick-task-queue"]
+  temporalWorkerLlmAnalyticsEvals:
+    # LLM-judged evaluations; needs an LLM provider key.
+    enabled: false
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "llm-analytics-evals-task-queue"]
+  temporalWorkerMaxAi:
+    # Max AI workflows; needs an LLM provider key.
+    enabled: false
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "max-ai-task-queue"]
+  temporalWorkerVideoExport:
+    # Replay video export; needs components.recordingRasterizer.
+    enabled: false
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "video-export-task-queue"]
+  temporalWorkerReplayVision:
+    # Replay vision; needs an LLM provider key.
+    enabled: false
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "replay-vision-task-queue"]
+  temporalWorkerAnalyticsPlatform:
+    # Analytics platform workflows.
+    enabled: false
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "analytics-platform-task-queue"]
+  temporalWorkerDucklake:
+    # Managed warehouse; needs components.duckgres.
+    enabled: false
+    kind: Deployment
+    image: app
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    ports:
+      - name: health
+        containerPort: 8082
+        servicePort: 8082
+    env:
+      # Upstream's worker health server (/healthz, /readyz); off unless a port is set.
+      TEMPORAL_HEALTH_PORT: "8082"
+    probes:
+      readiness:
+        httpGet:
+          path: /readyz
+          port: health
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        failureThreshold: 6
+    command: ["./bin/temporal-django-worker"]
+    args: ["--task-queue", "ducklake-task-queue"]
   plugins:
     enabled: true
     kind: Deployment
     image: node
     replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
     command: ["node", "nodejs/dist/index.js"]
     ports:
       - name: http
@@ -601,7 +1319,7 @@ components:
       # process dual-writes to a second store. It must be a separate instance:
       # the rate limiters and hog watcher run the same token-bucket calls
       # against both pools, so one Redis behind both names gets every key
-      # charged twice. The bundled valkey component below is that store.
+      # charged twice. The bundled valkeyShadow component below is that store.
       CDP_VALKEY_HOST: "{{ include \"posthog.valkeyHost\" . }}"
       CDP_VALKEY_PORT: "{{ include \"posthog.valkeyPort\" . }}"
       CDP_VALKEY_TLS: "{{ include \"posthog.valkeyTls\" . }}"
@@ -623,7 +1341,22 @@ components:
     kind: Deployment
     image: node
     replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
     command: ["node", "nodejs/dist/index.js"]
+    ports:
+      - name: http
+        containerPort: 6738
+        servicePort: 6738
+    probes:
+      readiness:
+        httpGet:
+          path: /_ready
+          port: http
+        initialDelaySeconds: 15
+        periodSeconds: 10
     env:
       PLUGIN_SERVER_MODE: ingestion-v2-combined
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
@@ -631,6 +1364,10 @@ components:
       # throws when createPersonHogClient returns null.
       PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
+      # Cookieless tracking resolves its session hashes in Redis at ingestion
+      # time as well as at flag evaluation; empty disables it here.
+      COOKIELESS_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      COOKIELESS_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
       # Combined mode consumes the events_plugin_ingestion_ai lane and owns AI
       # blob offload. Without a bucket, multimodal payloads are stored inline
       # instead of as blob references. The credentials expand from the object
@@ -647,7 +1384,22 @@ components:
     kind: Deployment
     image: node
     replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
     command: ["node", "nodejs/dist/index.js"]
+    ports:
+      - name: http
+        containerPort: 6738
+        servicePort: 6738
+    probes:
+      readiness:
+        httpGet:
+          path: /_ready
+          port: http
+        initialDelaySeconds: 15
+        periodSeconds: 10
     env:
       PLUGIN_SERVER_MODE: recordings-blob-ingestion-v2
       SESSION_RECORDING_V2_S3_TIMEOUT_MS: "120000"
@@ -663,6 +1415,13 @@ components:
         servicePort: 6738
     service:
       enabled: true
+    probes:
+      readiness:
+        httpGet:
+          path: /_ready
+          port: http
+        initialDelaySeconds: 15
+        periodSeconds: 10
     env:
       PLUGIN_SERVER_MODE: recording-api
       SESSION_RECORDING_API_REDIS_HOST: "{{ include \"posthog.redisUrl\" . }}"
@@ -673,6 +1432,17 @@ components:
     image: node
     replicas: 1
     command: ["node", "nodejs/dist/index.js"]
+    ports:
+      - name: http
+        containerPort: 6738
+        servicePort: 6738
+    probes:
+      readiness:
+        httpGet:
+          path: /_ready
+          port: http
+        initialDelaySeconds: 15
+        periodSeconds: 10
     env:
       PLUGIN_SERVER_MODE: ingestion-errortracking
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
@@ -686,6 +1456,17 @@ components:
     image: node
     replicas: 1
     command: ["node", "nodejs/dist/index.js"]
+    ports:
+      - name: http
+        containerPort: 6738
+        servicePort: 6738
+    probes:
+      readiness:
+        httpGet:
+          path: /_ready
+          port: http
+        initialDelaySeconds: 15
+        periodSeconds: 10
     env:
       PLUGIN_SERVER_MODE: ingestion-logs
       LOGS_REDIS_HOST: "{{ include \"posthog.redisUrl\" . }}"
@@ -697,6 +1478,17 @@ components:
     image: node
     replicas: 1
     command: ["node", "nodejs/dist/index.js"]
+    ports:
+      - name: http
+        containerPort: 6738
+        servicePort: 6738
+    probes:
+      readiness:
+        httpGet:
+          path: /_ready
+          port: http
+        initialDelaySeconds: 15
+        periodSeconds: 10
     env:
       PLUGIN_SERVER_MODE: ingestion-traces
       TRACES_REDIS_HOST: "{{ include \"posthog.redisUrl\" . }}"
@@ -707,6 +1499,10 @@ components:
     kind: Deployment
     image: capture
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: http
         containerPort: 3000
@@ -716,6 +1512,9 @@ components:
     env:
       ADDRESS: 0.0.0.0:3000
       KAFKA_TOPIC: events_plugin_ingestion
+      # Capture defaults this to error_tracking_events, which nothing consumes;
+      # the error-tracking ingester reads ingestion-errortracking-main.
+      KAFKA_ERROR_TRACKING_TOPIC: ingestion-errortracking-main
       CAPTURE_MODE: events
       RUST_LOG: info,rdkafka=warn
     probes:
@@ -724,11 +1523,20 @@ components:
           path: /_liveness
           port: http
         periodSeconds: 10
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: http
+        periodSeconds: 10
   replayCapture:
     enabled: true
     kind: Deployment
     image: capture
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: http
         containerPort: 3000
@@ -739,11 +1547,26 @@ components:
       ADDRESS: 0.0.0.0:3000
       KAFKA_TOPIC: session_recording_snapshot_item_events
       CAPTURE_MODE: recordings
+    probes:
+      liveness:
+        httpGet:
+          path: /_liveness
+          port: http
+        periodSeconds: 10
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: http
+        periodSeconds: 10
   captureAi:
     enabled: true
     kind: Deployment
     image: capture
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: http
         containerPort: 3000
@@ -757,20 +1580,45 @@ components:
       KAFKA_TOPIC: events_plugin_ingestion_ai
       CAPTURE_MODE: ai
       RUST_LOG: info,rdkafka=warn
+    probes:
+      liveness:
+        httpGet:
+          path: /_liveness
+          port: http
+        periodSeconds: 10
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: http
+        periodSeconds: 10
   captureLogs:
     enabled: true
     kind: Deployment
     image: captureLogs
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: otlp
         containerPort: 4318
         servicePort: 4318
+      - name: mgmt
+        containerPort: 8080
+        servicePort: 8080
     service:
       enabled: true
+    probes:
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: mgmt
+        periodSeconds: 10
     env:
       BIND_HOST: 0.0.0.0
       BIND_PORT: "4318"
+      MANAGEMENT_BIND_PORT: "8080"
       RUST_LOG: info,rdkafka=warn
       RUST_BACKTRACE: "1"
       KAFKA_TOPIC: logs_ingestion
@@ -779,10 +1627,25 @@ components:
     kind: Deployment
     image: propertyDefs
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+    ports:
+      - name: http
+        containerPort: 3301
+        servicePort: 3301
+    probes:
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: http
+        periodSeconds: 10
     env:
       SKIP_WRITES: "false"
       SKIP_READS: "false"
       FILTER_MODE: opt-out
+      BIND_PORT: "3301"
       # Group property definitions are dropped for any group type the service
       # cannot resolve, and it resolves them through PersonHog. tonic builds
       # the channel from this value, so it needs the scheme.
@@ -792,6 +1655,10 @@ components:
     kind: Deployment
     image: featureFlags
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: http
         containerPort: 3001
@@ -822,6 +1689,10 @@ components:
     kind: Deployment
     image: hypercache
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: http
         containerPort: 3002
@@ -842,6 +1713,10 @@ components:
     kind: Deployment
     image: personhogReplica
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: grpc
         containerPort: 50051
@@ -856,11 +1731,21 @@ components:
       PRIMARY_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
       RUST_LOG: info
       METRICS_PORT: "9100"
+    probes:
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: metrics
+        periodSeconds: 10
   personhogRouter:
     enabled: true
     kind: Deployment
     image: personhogRouter
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: grpc
         containerPort: 50052
@@ -876,11 +1761,21 @@ components:
       BACKEND_TIMEOUT_MS: "5000"
       RUST_LOG: info
       METRICS_PORT: "9101"
+    probes:
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: metrics
+        periodSeconds: 10
   livestream:
     enabled: true
     kind: Deployment
     image: livestream
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
     ports:
       - name: http
         containerPort: 8080
@@ -909,11 +1804,21 @@ components:
       LIVESTREAM_CONSUMERS_SESSION_RECORDING_SECURITY_PROTOCOL: PLAINTEXT
       LIVESTREAM_CONSUMERS_SESSION_RECORDING_GROUP_ID: livestream-session-recordings
       LIVESTREAM_CONSUMERS_NOTIFICATION_ENABLED: "false"
+    probes:
+      readiness:
+        httpGet:
+          path: /
+          port: http
+        periodSeconds: 10
   cyclotronJanitor:
     enabled: true
     kind: Deployment
     image: cyclotronJanitor
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     env:
       KAFKA_TOPIC: clickhouse_app_metrics2
   cymbal:
@@ -921,6 +1826,10 @@ components:
     kind: Deployment
     image: cymbal
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: http
         containerPort: 3302
@@ -940,11 +1849,26 @@ components:
       # IP, hence the headless service on cymbalResolution.
       CYMBAL_REMOTE_RESOLUTION_HOST: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"cymbalResolution\") }}"
       CYMBAL_REMOTE_RESOLUTION_PORT: "50061"
+    probes:
+      liveness:
+        httpGet:
+          path: /_liveness
+          port: http
+        periodSeconds: 10
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: http
+        periodSeconds: 10
   cymbalResolution:
     enabled: true
     kind: Deployment
     image: cymbal
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
     ports:
       - name: grpc
         containerPort: 50061
@@ -1130,6 +2054,10 @@ components:
     hook: post-install,pre-upgrade
     hookWeight: 0
     activeDeadlineSeconds: 3600
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
     annotations:
       argocd.argoproj.io/hook: Sync
       argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
@@ -1170,6 +2098,10 @@ components:
     hook: post-install,pre-upgrade
     hookWeight: -5
     activeDeadlineSeconds: 900
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
     annotations:
       argocd.argoproj.io/hook: Sync
       argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
@@ -1222,6 +2154,10 @@ components:
     kind: Deployment
     image: temporal
     replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
     ports:
       - name: grpc
         containerPort: 7233
@@ -1241,6 +2177,12 @@ components:
       POSTGRES_SEEDS: "{{ include \"posthog.postgresHost\" . }}"
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
       ENABLE_ES: "false"
+    probes:
+      readiness:
+        tcpSocket:
+          port: grpc
+        initialDelaySeconds: 20
+        periodSeconds: 10
   temporalAdminTools:
     enabled: false
     kind: Deployment
@@ -1264,6 +2206,64 @@ components:
       TEMPORAL_CORS_ORIGINS: "{{ .Values.global.siteUrl }}"
       TEMPORAL_CSRF_COOKIE_INSECURE: "true"
       TEMPORAL_CODEC_ENDPOINT: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"web\" \"port\" 8000) }}"
+  # General object storage: exports, symbol sets, AI blobs, warehouse tables.
+  # SeaweedFS as in upstream's compose stack. Identities are registered at
+  # runtime with s3.configure rather than a static -s3.config, which upstream
+  # found to trigger SigV4 and presigned-URL regressions; no anonymous
+  # identity is created, so only signed requests with the chart's object
+  # storage credentials are accepted (the bucket path is routed through the
+  # Ingress, and presigned URLs carry their own signature).
+  objectStorage:
+    enabled: true
+    kind: StatefulSet
+    image: seaweedfs
+    replicas: 1
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        BUCKETS="{{ join " " .Values.internal.objectStorage.buckets }}"
+        (
+          for attempt in $(seq 1 120); do
+            sleep 5
+            printf 's3.configure -access_key=%s -secret_key=%s -user=posthog -actions=Admin -apply\n' \
+              "$OBJECT_STORAGE_ACCESS_KEY_ID" "$OBJECT_STORAGE_SECRET_ACCESS_KEY" \
+              | /usr/bin/weed shell -master=localhost:9333 >/dev/null 2>&1 || true
+            for b in $BUCKETS; do
+              echo "s3.bucket.create -name $b" | /usr/bin/weed shell -master=localhost:9333 >/dev/null 2>&1 || true
+            done
+            LIST=$(echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:9333 2>/dev/null || true)
+            IDS=$(echo "s3.configure" | /usr/bin/weed shell -master=localhost:9333 2>/dev/null || true)
+            ok=1
+            for b in $BUCKETS; do echo "$LIST" | grep -qF "$b" || ok=0; done
+            echo "$IDS" | grep -qF "$OBJECT_STORAGE_ACCESS_KEY_ID" || ok=0
+            if [ "$ok" = 1 ]; then
+              echo "Object storage ready with buckets: $BUCKETS"
+              exit 0
+            fi
+          done
+          echo "Object storage bootstrap incomplete after 10 minutes" >&2
+        ) &
+        exec /usr/bin/weed server -s3 -s3.port=9000 -master.port=9333 -dir=/data
+    ports:
+      - name: s3
+        containerPort: 9000
+        servicePort: 9000
+      - name: master
+        containerPort: 9333
+        servicePort: 9333
+    service:
+      enabled: true
+    persistence:
+      enabled: true
+      size: 20Gi
+      mountPath: /data
+    probes:
+      readiness:
+        tcpSocket:
+          port: s3
+        periodSeconds: 10
+  # Replay store. Upstream keeps it apart from general object storage and in
+  # open-access mode; SESSION_RECORDING_V2_S3_* credentials are placeholders.
   seaweedfs:
     enabled: true
     kind: StatefulSet
@@ -1301,13 +2301,178 @@ components:
       enabled: true
       size: 20Gi
       mountPath: /data
+    probes:
+      readiness:
+        tcpSocket:
+          port: s3
+        periodSeconds: 10
+  # Headless Chromium. The PostHog image ships no browser, and image exports
+  # raise without BROWSERLESS_CDP_URL: dashboard and insight exports,
+  # subscriptions, heatmap and event screenshots all render here. commonEnv
+  # points every Django process at it while this is enabled.
+  browserless:
+    enabled: true
+    kind: Deployment
+    image: browserless
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    ports:
+      - name: http
+        containerPort: 3000
+        servicePort: 3000
+    service:
+      enabled: true
+    env:
+      # Bounded so a stuck export cannot pin the browser forever.
+      TIMEOUT: "180000"
+      MAX_CONCURRENT_SESSIONS: "5"
+    extraEnv:
+      - name: TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: "{{ include \"posthog.secretName\" . }}"
+            key: "{{ .Values.secrets.keys.browserlessToken }}"
+    probes:
+      readiness:
+        tcpSocket:
+          port: http
+        periodSeconds: 10
+      liveness:
+        tcpSocket:
+          port: http
+        periodSeconds: 20
+  # Bundled Postgres. Single primary, no replication; run a managed Postgres
+  # or an operator for anything beyond evaluation. PGDATA sits one level below
+  # the mount so the volume's lost+found does not break initdb.
+  postgres:
+    enabled: true
+    kind: StatefulSet
+    image: postgres
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    ports:
+      - name: postgres
+        containerPort: 5432
+        servicePort: 5432
+    service:
+      enabled: true
+    env:
+      POSTGRES_USER: "{{ .Values.internal.postgres.user }}"
+      POSTGRES_PASSWORD: "{{ .Values.internal.postgres.password }}"
+      POSTGRES_DB: "{{ .Values.internal.postgres.database }}"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    configMounts:
+      - name: posthog-postgres-init
+        mountPath: /docker-entrypoint-initdb.d
+    persistence:
+      enabled: true
+      size: 20Gi
+      mountPath: /var/lib/postgresql/data
+    probes:
+      readiness:
+        exec:
+          command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+        periodSeconds: 10
+      liveness:
+        exec:
+          command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+        initialDelaySeconds: 30
+        periodSeconds: 20
+  # ZooKeeper for the bundled ClickHouse. Official image; both data
+  # directories live on the one claim.
+  zookeeper:
+    enabled: true
+    kind: StatefulSet
+    image: zookeeper
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    ports:
+      - name: client
+        containerPort: 2181
+        servicePort: 2181
+    service:
+      enabled: true
+    env:
+      ZOO_MY_ID: "1"
+      ZOO_DATA_DIR: /data/data
+      ZOO_DATA_LOG_DIR: /data/datalog
+      ZOO_4LW_COMMANDS_WHITELIST: srvr,mntr,ruok
+      ZOO_AUTOPURGE_PURGEINTERVAL: "1"
+    persistence:
+      enabled: true
+      size: 10Gi
+      mountPath: /data
+    probes:
+      readiness:
+        exec:
+          command: ["sh", "-c", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+        periodSeconds: 10
+      liveness:
+        tcpSocket:
+          port: client
+        initialDelaySeconds: 30
+        periodSeconds: 20
+  # Main Redis-compatible store: Django cache, Celery broker and RedBeat
+  # schedule, flags, session recording state. Same memory settings as
+  # upstream's redis7 container; raise --maxmemory before scaling out.
+  valkey:
+    enabled: true
+    kind: StatefulSet
+    image: valkey
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    args:
+      - valkey-server
+      - --maxmemory-policy
+      - allkeys-lru
+      - --maxmemory
+      - 200mb
+      - --dir
+      - /data
+      - --save
+      - "60 1"
+    ports:
+      - name: redis
+        containerPort: 6379
+        servicePort: 6379
+    service:
+      enabled: true
+    persistence:
+      enabled: true
+      size: 8Gi
+      mountPath: /data
+    probes:
+      readiness:
+        exec:
+          command: ["valkey-cli", "ping"]
+        periodSeconds: 5
+      liveness:
+        tcpSocket:
+          port: redis
+        periodSeconds: 10
   # CDP shadow store. Disposable by design: no volume, evicted under the cap,
   # same settings as upstream's valkey container.
-  valkey:
+  valkeyShadow:
     enabled: true
     kind: Deployment
     image: valkey
     replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
     args:
       - valkey-server
       - --maxmemory-policy
@@ -1556,57 +2721,6 @@ clickhouse:
   config:
     kafkaHosts: "{{ include \"posthog.kafkaHosts\" . }}"
 
-postgresql:
-  enabled: true
-  fullnameOverride: db
-  auth:
-    username: posthog
-    password: posthog
-    database: posthog
-    postgresPassword: posthog
-  primary:
-    persistence:
-      enabled: true
-      size: 20Gi
-    initdb:
-      scripts:
-        01-create-posthog-dbs.sql: |
-          CREATE DATABASE posthog_persons;
-          CREATE DATABASE cyclotron;
-          CREATE DATABASE posthog_flags;
-
-redis:
-  enabled: true
-  fullnameOverride: redis7
-  architecture: standalone
-  auth:
-    enabled: false
-  master:
-    extraFlags:
-      - --maxmemory-policy
-      - allkeys-lru
-      - --maxmemory
-      - 200mb
-    persistence:
-      enabled: true
-      size: 8Gi
-
-minio:
-  enabled: true
-  fullnameOverride: objectstorage
-  auth:
-    rootUser: object_storage_root_user
-    rootPassword: object_storage_root_password
-  defaultBuckets: posthog,ducklake-dev,ai-blobs
-  service:
-    ports:
-      api: 9000
-  console:
-    enabled: false
-  persistence:
-    enabled: true
-    size: 20Gi
-
 redpanda:
   fullnameOverride: kafka
   config:
@@ -1643,27 +2757,10 @@ redpanda:
       enabled: true
       size: 20Gi
 
-zookeeper:
-  enabled: true
-  global:
-    security:
-      allowInsecureImages: true
-  fullnameOverride: zookeeper
-  image:
-    repository: bitnamilegacy/zookeeper
-    tag: "3.9"
-  replicaCount: 1
-  persistence:
-    enabled: true
-    size: 10Gi
-
-grafana:
-  enabled: false
-loki:
-  enabled: false
-promtail:
-  enabled: false
-prometheus:
-  enabled: false
-cert-manager:
-  enabled: false
+# The operator's CRD hook shells out to kubectl; the subchart defaults to a
+# floating bitnami/kubectl:latest. alpine/k8s ships kubectl with a shell.
+altinity-clickhouse-operator:
+  crdHook:
+    image:
+      repository: alpine/k8s
+      tag: 1.33.4

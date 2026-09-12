@@ -13,6 +13,30 @@ The PostHog-owned runtime images follow the upstream container defaults and use 
 - A default `StorageClass` for the bundled evaluation profile
 - A working Ingress controller when `ingress.enabled=true`
 - External DNS pointing `global.domain` / `ingress.host` at the cluster when using a public URL
+- cert-manager, Prometheus and Grafana are not part of this chart. Install them separately; `ingress.annotations` and `monitoring.serviceMonitor` connect to them.
+
+## Images and Supply Chain
+
+PostHog images default to the mutable `master` tag with pull policy `Always`, as upstream's hobby stack does. For a controlled rollout set an immutable `images.<name>.tag`, or `images.<name>.digest` (`sha256:...`), which wins over the tag. Set `global.allowMutableImageTags=false` to make the chart refuse `master` and `latest`.
+
+No Bitnami images are involved. The bundled backing services are chart components on upstream images, the same ones upstream's compose stack uses: Postgres (`components.postgres`, official `postgres` image), ZooKeeper (`components.zookeeper`, official `zookeeper` image), Valkey (`components.valkey`), SeaweedFS for object storage (`components.objectStorage`) and for replay (`components.seaweedfs`), and Temporal. Redpanda and the ClickHouse operator are the only remaining subcharts. Each bundled store is a single replica with one claim; treat them as evaluation grade and run managed services in production.
+
+Published chart versions are signed with cosign using GitHub's OIDC identity. Verify with:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/mayflower/posthog-helm/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/mayflower/posthog-helm/posthog:0.6.0
+```
+
+## Security Defaults
+
+Every pod runs with seccomp `RuntimeDefault`, no privilege escalation, all capabilities dropped, and no ServiceAccount token mounted. Components running the PostHog app, node and Rust images also run as their image's non-root uid (`10001` and `65534`); images that stay root, such as Temporal and SeaweedFS, do not get `runAsNonRoot`. The pod context resolves from `components.<name>.podSecurityContext`, then `images.<name>.podSecurityContext`, then `defaultPodSecurityContext`.
+
+`networkPolicy.enabled=true` adds a default-deny ingress policy for chart pods that allows the release namespace, the namespaces in `networkPolicy.ingress.namespaceSelector` (your ingress controller and Prometheus), and `networkPolicy.ingress.extraRules`. Subchart pods are not covered.
+
+Every workload has resource requests and no limits; they are starting points, not measurements. Override `defaultResources` or `components.<name>.resources`.
 
 ## Install Ordering
 
@@ -24,7 +48,7 @@ Every job has an `activeDeadlineSeconds`, so a missing dependency fails the inst
 
 ## Profiles
 
-- `profile.mode=bundled` deploys PostHog plus bundled backing services through maintained subcharts where practical. Use it for non-production evaluation.
+- `profile.mode=bundled` deploys PostHog plus bundled backing services: Redpanda through its subchart, ClickHouse through the Altinity operator, and Postgres, ZooKeeper, Valkey, SeaweedFS object storage, the SeaweedFS replay store, the Valkey CDP shadow store, Temporal and browserless as chart components. Use it for non-production evaluation.
 - `profile.mode=external` deploys PostHog workloads and uses managed dependencies where configured. Kafka can still use the bundled Redpanda subchart by leaving `external.kafka.hosts` empty and enabling `subcharts.redpanda.enabled`.
 
 ## Quick Start
@@ -43,7 +67,7 @@ Install from the GitHub Container Registry after a chart version has been publis
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.3.0 \
+  --version 0.6.0 \
   --namespace posthog \
   --create-namespace \
   --set global.domain=posthog.example.com \
@@ -117,7 +141,7 @@ Install from the published OCI chart:
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.3.0 \
+  --version 0.6.0 \
   --namespace posthog \
   -f ./values.production.yaml
 ```
@@ -136,7 +160,7 @@ helm upgrade --install posthog . \
 
 | Dependency | Values | Requirements |
 | --- | --- | --- |
-| PostgreSQL | `external.postgres.*` | Reachable from the namespace. The configured user must own or be able to migrate the configured database. The chart currently uses the same Postgres URL for `DATABASE_URL`, `PERSONS_DATABASE_URL`, and `BEHAVIORAL_COHORTS_DATABASE_URL`. |
+| PostgreSQL | `external.postgres.*` | Reachable from the namespace. The bundled component creates the databases in `internal.postgres.extraDatabases` on first start; an external Postgres needs the same databases created by you. The configured user must own or be able to migrate the configured database. The chart currently uses the same Postgres URL for `DATABASE_URL`, `PERSONS_DATABASE_URL`, and `BEHAVIORAL_COHORTS_DATABASE_URL`. |
 | Redis | `external.redis.*` | Reachable Redis endpoint. Use `external.redis.passwordSecret` for password auth, or remove it if your endpoint has no password. Set `external.redis.tls=true` only for TLS-enabled Redis endpoints. |
 | Kafka or Redpanda | `external.kafka.hosts` or bundled Redpanda | Plain Kafka bootstrap string by default. If you need SASL/TLS, add the required PostHog env vars under the affected `components.*.extraEnv` and manage topics externally unless `rpk` can connect with the same settings. |
 | ClickHouse | `external.clickhouse.*` | The configured user needs enough privileges for PostHog migrations: database/table creation, materialized views, dictionaries, Kafka-engine tables, named collections, and `SYSTEM FLUSH LOGS`. Set `cluster`/`migrationsCluster` when using replicated clusters. |
@@ -144,6 +168,8 @@ helm upgrade --install posthog . \
 | Session recording storage | `external.sessionRecording.*` | S3-compatible endpoint and credentials for replay payloads. This can share the same provider/secret as object storage, but keep a separate bucket or prefix operationally. |
 | Temporal | `external.temporal.*`, `components.temporal.enabled` | Existing Temporal frontend endpoint, or the bundled Temporal component with `external.temporal.host` pointing at the chart service. Disable `components.temporal` only when you provide managed Temporal. The bundled Temporal reads its Postgres credentials from the chart's Postgres settings, so with external Postgres it needs `external.postgres.passwordSecret`; a bare `external.postgres.url` leaves `POSTGRES_PWD` empty. |
 | CDP shadow store | `external.valkey.*`, `components.valkey.enabled` | Redis-compatible instance the CDP services dual-write to. It must be separate from the main Redis: the rate limiters run the same token-bucket calls against both, so one instance behind both names charges every key twice. The bundled `valkey` component is used unless `external.valkey.host` is set. Contents are disposable. |
+| Headless browser | `components.browserless` | Chromium for image exports, subscriptions, heatmap and event screenshots; the PostHog image ships no browser and exports raise without it. Every Django process gets its URL and token while it is enabled. With an externally managed Secret, add a `BROWSERLESS_TOKEN` key; the token refs are optional so pods start without it, but exports then fail with an auth error. |
+| Data warehouse storage | `internal.objectStorage.dataWarehouseBucket` | In bundled mode the chart routes warehouse and data modeling writes through the bundled object store (`USE_LOCAL_SETUP`). In external mode set `BUCKET_URL`, `DATAWAREHOUSE_BUCKET` and the AWS-style credentials through `extraEnv` on the warehouse workers, as upstream does. |
 | Error tracking symbol resolution | `components.cymbalResolution` | Cymbal's processing mode has no inline symbol resolution and refuses to boot without a resolution service. The chart runs one behind a headless Service and points `cymbal` at it; it shares the object storage settings for symbol sets. |
 | OpenSearch | `external.opensearch.host` | Optional but recommended for search-backed features. Include the URL scheme when TLS is used, for example `https://opensearch.example.com:9200`. |
 
@@ -228,7 +254,7 @@ Keep `kafka.defaultPartitions` and `kafka.defaultReplicationFactor` aligned with
 
 `global.siteUrl` must be the externally reachable PostHog URL. Event capture, feature flags, session recording, and redirects depend on it. `ingress.host` defaults to `global.domain` when omitted.
 
-`routing.routes` mirrors the upstream Caddy proxy from `docker-compose.base.yml`: capture (`/e`, `/i/v0`, `/i/v1/analytics/events`, `/batch`, `/capture`), AI capture, replay capture, logs/traces/metrics, flags including `/api/feature_flag/local_evaluation`, surveys and remote config, webhooks, livestream, and the web app for everything else. In bundled mode `routing.objectStorageRoute` also forwards `/<bucket>` to the bundled object store, because `OBJECT_STORAGE_PUBLIC_ENDPOINT` defaults to the site URL. The bucket name is fixed to `posthog` in bundled mode unless you also change the minio subchart's `defaultBuckets`. In external mode set `external.objectStorage.publicEndpoint` instead.
+`routing.routes` mirrors the upstream Caddy proxy from `docker-compose.base.yml`: capture (`/e`, `/i/v0`, `/i/v1/analytics/events`, `/batch`, `/capture`), AI capture, replay capture, logs/traces/metrics, flags including `/api/feature_flag/local_evaluation`, surveys and remote config, webhooks, livestream, and the web app for everything else. In bundled mode `routing.objectStorageRoute` also forwards `/<bucket>` to the bundled object store, because `OBJECT_STORAGE_PUBLIC_ENDPOINT` defaults to the site URL. The bundled object store creates every bucket in `internal.objectStorage.buckets` at startup; keep `internal.objectStorage.bucket` and `dataWarehouseBucket` in that list. In external mode set `external.objectStorage.publicEndpoint` instead.
 
 The `/livestream` route must reach the service without its prefix. An Ingress cannot express that portably, so `ingress.stripPrefix.mode` controls it: `nginx` renders a second Ingress with ingress-nginx's `rewrite-target` annotation and buffering disabled for server-sent events; `none` passes the prefix through and leaves stripping to your controller; `auto` (the default) picks `nginx` when `ingress.className` contains `nginx` and `none` otherwise. The optional Caddy `proxy` component honours `stripPrefix` directly.
 
@@ -281,12 +307,17 @@ ingress:
 
 Dependencies are vendored as unpacked chart directories because Helm 4 linting expects directories, while `helm dependency update` writes archives.
 
+CI runs `helm lint`, the `helm-unittest` suites in `tests/`, and `kubeconform` over both profiles on every push. Locally:
+
 ```bash
+helm plugin install --verify=false https://github.com/helm-unittest/helm-unittest
+helm unittest .
 helm lint --strict .
 helm template posthog . > /tmp/posthog.yaml
 helm template posthog . -f ./examples/external-values.yaml > /tmp/posthog-external.yaml
+kubeconform -strict -ignore-missing-schemas /tmp/posthog.yaml
 helm template posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.3.0 \
+  --version 0.6.0 \
   -f ./values.production.yaml > /tmp/posthog-production.yaml
 ```
 
@@ -328,6 +359,22 @@ For local port-forward checks:
 kubectl -n posthog port-forward svc/posthog-posthog-web 8000:8000
 curl -fsS http://localhost:8000/preflight?mode=live
 ```
+
+## Temporal Workers
+
+A Temporal worker serves exactly one task queue, and outside of debug mode every PostHog product has its own queue. `temporalDjangoWorker` serves the general-purpose queue; the `temporalWorker*` components serve one queue each: batch exports, warehouse syncs and metadata, data modeling, error tracking and its lifecycle, session replay, experiments, LLM analytics, weekly digests, event screenshots, and log alerting are enabled by default. Workers for Max AI, LLM evals, replay vision, video export, the analytics platform and the managed warehouse are present but disabled, because they need an LLM provider key or another optional component.
+
+Each worker is a full Django process. Disable the ones for products you do not use:
+
+```yaml
+components:
+  temporalWorkerDataWarehouse:
+    enabled: false
+  temporalWorkerDataModeling:
+    enabled: false
+```
+
+Upstream's hobby stack runs a single worker on the general-purpose queue, so batch exports and the warehouse do not run there; this chart covers them.
 
 ## Optional Feature Components
 

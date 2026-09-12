@@ -1,0 +1,35 @@
+# Changelog
+
+## 0.6.0
+
+- No Bitnami images remain. Bundled Postgres and ZooKeeper are chart components on the official `postgres` and `zookeeper` images, matching upstream's compose stack; the Bitnami subcharts are removed. Postgres creates the databases in `internal.postgres.extraDatabases` on first start. The ClickHouse operator's CRD hook uses `alpine/k8s` for kubectl, and the optional Kafka UI moved to the maintained `kafbat/kafka-ui` fork.
+- The bundled Redis and MinIO subcharts are gone. Valkey (`components.valkey`, StatefulSet with persistence) serves the Redis role and SeaweedFS (`components.objectStorage`) serves general object storage, with buckets and the S3 identity created at startup from `internal.objectStorage.buckets` and the chart's object storage credentials. The CDP shadow store is now `components.valkeyShadow`.
+- Bundled installs upgrading from 0.5.0 or earlier get empty stores, Postgres included: dump and restore Postgres, and copy Redis and bucket contents over before switching, or accept starting from scratch.
+- `internal.objectStorage.endpoint` and `internal.sessionRecording.endpoint` are templated and now resolve to the chart's own service names; the replay store endpoint previously pointed at a hostname that did not exist.
+
+## 0.5.0
+
+- (Superseded in 0.6.0.) Bundled Postgres, Redis, MinIO and the ClickHouse operator's kubectl hook were pinned to frozen `bitnamilegacy` images; the subchart defaults had drifted to a floating `latest` after Bitnami's catalog change.
+- `images.<name>.digest` pins an image by digest and wins over the tag.
+- Restricted pod security defaults: seccomp `RuntimeDefault` everywhere, `runAsNonRoot` with the image's numeric uid for the PostHog app, node and Rust images, no ServiceAccount token automount.
+- Resource requests on every workload, readiness probes on capture, ingestion, property-defs, PersonHog, cymbal, livestream, Temporal, SeaweedFS and the Temporal workers.
+- Opt-in NetworkPolicy (`networkPolicy.enabled`).
+- ConfigMap checksums roll the proxy, Temporal and livestream pods on config changes.
+- The bundled ClickHouse `api` user's password comes from the chart Secret.
+- Failed hook jobs expire after a day (`ttlSecondsAfterFinished`).
+- Labels carry `app.kubernetes.io/version` and `part-of`.
+- Chart metadata for Artifact Hub, helm-unittest suites, kubeconform in CI, keyless cosign signing on publish.
+- Removed: cert-manager, Prometheus, Grafana, Loki and Promtail are no longer chart dependencies. Install them separately.
+
+## 0.4.0
+
+- One Temporal worker per task queue; upstream serves one queue per process.
+- Browserless component for exports, subscriptions and screenshots.
+- `FEATURE_FLAGS_SERVICE_URL` in the common env, cookieless Redis on the general ingester, capture's exception topic, three missing Kafka topics, bundled data warehouse storage.
+
+## 0.3.0
+
+- Init jobs run post-install and pre-upgrade so fresh installs work; bounded waits; Argo CD hook annotations.
+- Generated secrets are preserved across upgrades.
+- PersonHog address formats, feature-flags database variables, Cymbal resolution service, Temporal Postgres credentials, separate Valkey shadow store.
+- Upstream routing paths, livestream prefix rewrite, AI capture mode and blob offload, SeaweedFS 4.29 with bucket bootstrap.

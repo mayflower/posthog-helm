@@ -1,0 +1,53 @@
+name: Chart CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**.md"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, unit test, validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install helm-unittest
+        run: helm plugin install --verify=false https://github.com/helm-unittest/helm-unittest
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Lint
+        run: |
+          helm lint --strict .
+          helm lint --strict . -f examples/external-values.yaml
+
+      - name: Unit tests
+        run: helm unittest .
+
+      - name: Render and validate against the Kubernetes API schemas
+        run: |
+          helm template posthog . --namespace posthog > /tmp/bundled.yaml
+          helm template posthog . --namespace posthog -f examples/external-values.yaml > /tmp/external.yaml
+          kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.31.0 /tmp/bundled.yaml
+          kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.31.0 /tmp/external.yaml
+
+      - name: Render must be stable across two runs when secrets are supplied
+        run: |
+          args="--set secrets.values.secretKey=a --set secrets.values.encryptionSaltKeys=b --set secrets.values.captureLogsJwtSecret=c --set secrets.values.livestreamJwtSecret=d --set secrets.values.internalApiSecret=e --set secrets.values.browserlessToken=f --set secrets.values.clickhouseApiPassword=g"
+          helm template posthog . $args > /tmp/one.yaml
+          helm template posthog . $args > /tmp/two.yaml
+          diff -q /tmp/one.yaml /tmp/two.yaml
