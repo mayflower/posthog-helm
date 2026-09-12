@@ -19,12 +19,23 @@ tests:
           path: spec.template.spec.securityContext.seccompProfile.type
           value: RuntimeDefault
 
-  - it: runs the app image as uid 10001 and the rust images as nobody
+  - it: runs the node image as uid 10001, the rust images as nobody, and the app image as root with seccomp
     template: workloads.yaml
     asserts:
       - equal:
           path: spec.template.spec.securityContext.runAsUser
           value: 10001
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: plugins
+      - notExists:
+          path: spec.template.spec.securityContext.runAsUser
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: web

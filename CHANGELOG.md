@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- The app image runs as root again with only the seccomp profile: its Dockerfile ends as root and `bin/docker-server` drops privileges itself with `setpriv`, which fails when the pod already runs as uid 10001. The node image keeps uid 10001.
+- The general ingester's cookieless Redis host is left empty whenever the external Redis needs a password, so the Node pool falls back to the authenticated `REDIS_URL` instead of dying on its first command.
+
 ## 0.6.1
 
 - `components.<name>.fullnameOverride` names a component's objects directly, so a chart component can take over a StatefulSet and its claims from a subchart the chart used to bundle under a fixed name (the ZooKeeper `data-zookeeper-0` claim, for instance).

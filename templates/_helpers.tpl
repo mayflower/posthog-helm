@@ -334,6 +334,14 @@ password cannot be pulled back out of a URL in a template.
 {{- if eq .Values.profile.mode "external" -}}{{ ternary "true" "false" (default false .Values.external.redis.tls) }}{{- else -}}{{ ternary "true" "false" (default false .Values.internal.redis.tls) }}{{- end -}}
 {{- end -}}
 
+{{/*
+Host for Redis pools that take no password: empty when Redis needs one, so
+the client falls back to REDIS_URL, which carries it.
+*/}}
+{{- define "posthog.cookielessRedisHost" -}}
+{{- if and (eq .Values.profile.mode "external") (or .Values.external.redis.passwordSecret.name .Values.external.redis.url) -}}{{- else -}}{{ include "posthog.redisHost" . }}{{- end -}}
+{{- end -}}
+
 {{- define "posthog.redisPasswordEnv" -}}
 {{- if and (eq .Values.profile.mode "external") .Values.external.redis.passwordSecret.name -}}$(REDIS_PASSWORD){{- end -}}
 {{- end -}}

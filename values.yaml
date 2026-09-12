@@ -157,10 +157,11 @@ mmdbFileLocation: "/app/share/GeoLite2-City.mmdb"
 
 # Every entry takes repository and tag, or repository and digest
 # (sha256:...), which wins over the tag. podSecurityContext here is the
-# family default for every component running the image: the PostHog app and
-# node images switch to uid 10001, the Rust images to nobody (65534). Images
-# that stay root or use a named user carry no context and get
-# defaultPodSecurityContext only.
+# family default for every component running the image: the node image
+# switches to uid 10001, the Rust images to nobody (65534). The app image
+# ends its Dockerfile as root and bin/docker-server drops privileges itself
+# with setpriv, so it must start as root and carries only the seccomp
+# profile; images with a named user carry no context either.
 images:
   # The Django app image. Upstream's ghcr.io/posthog/posthog bundles the
   # ee/ directory, which is under the PostHog Enterprise License and is only
@@ -174,10 +175,7 @@ images:
   app:
     repository: ghcr.io/mayflower/posthog-foss
     tag: a6c726314d3e6c7cb3b878fdc87f39966a4bf5b9
-    podSecurityContext: &posthogUser
-      runAsNonRoot: true
-      runAsUser: 10001
-      runAsGroup: 10001
+    podSecurityContext:
       seccompProfile:
         type: RuntimeDefault
   # nodejs/ carries no enterprise code, so upstream's image is MIT as is.
@@ -187,7 +185,12 @@ images:
   node:
     repository: ghcr.io/posthog/posthog-node
     tag: master
-    podSecurityContext: *posthogUser
+    podSecurityContext: &posthogUser
+      runAsNonRoot: true
+      runAsUser: 10001
+      runAsGroup: 10001
+      seccompProfile:
+        type: RuntimeDefault
   capture:
     repository: ghcr.io/posthog/posthog/capture
     tag: master
@@ -1378,8 +1381,10 @@ components:
       PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
       # Cookieless tracking resolves its session hashes in Redis at ingestion
-      # time as well as at flag evaluation; empty disables it here.
-      COOKIELESS_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
+      # time. The Node pool for it takes a host but no password, and falls
+      # back to the authenticated REDIS_URL when the host is empty, so the
+      # host is only set when Redis needs no password.
+      COOKIELESS_REDIS_HOST: "{{ include \"posthog.cookielessRedisHost\" . }}"
       COOKIELESS_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
       # Combined mode consumes the events_plugin_ingestion_ai lane and owns AI
       # blob offload. Without a bucket, multimodal payloads are stored inline
