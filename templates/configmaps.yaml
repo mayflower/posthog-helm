@@ -7,6 +7,13 @@ metadata:
 data:
   Caddyfile: |
     {{ default .Values.global.domain .Values.ingress.host }} {
+      {{- with .Values.routing.objectStorageRoute }}
+      {{- if and .enabled (eq $.Values.profile.mode "bundled") }}
+      handle {{ default (printf "/%s" (include "posthog.objectStorageBucket" $)) .path }}* {
+        reverse_proxy {{ tpl .host $ }}:{{ .port }}
+      }
+      {{- end }}
+      {{- end }}
       {{- range .Values.routing.routes }}
       {{- if eq .path "/" }}
       handle {
@@ -17,7 +24,9 @@ data:
         {{- if .stripPrefix }}
         uri strip_prefix {{ .path }}
         {{- end }}
-        reverse_proxy {{ include "posthog.serviceHost" (dict "root" $ "name" .service) }}:{{ .port }}
+        reverse_proxy {{ include "posthog.serviceHost" (dict "root" $ "name" .service) }}:{{ .port }}{{ if .stripPrefix }} {
+          flush_interval -1
+        }{{ end }}
       }
       {{- end }}
       {{- end }}

@@ -14,6 +14,14 @@ The PostHog-owned runtime images follow the upstream container defaults and use 
 - A working Ingress controller when `ingress.enabled=true`
 - External DNS pointing `global.domain` / `ingress.host` at the cluster when using a public URL
 
+## Install Ordering
+
+The `kafkaInit` and `migrate` jobs run as `post-install,pre-upgrade` hooks. Helm creates pre-install hooks before anything else in a release, so a pre-install job that needs the chart's ServiceAccount, its Secret, or the bundled databases can never start in an empty namespace. On a fresh install the jobs therefore run once every resource exists, waiting inside the pod for Kafka and ClickHouse with bounded timeouts; on upgrades they run before the workloads roll, as before. `asyncMigrationsCheck` stays a post-install/post-upgrade hook and runs after `migrate`.
+
+The jobs also carry Argo CD annotations (`argocd.argoproj.io/hook: Sync` for the init jobs, `PostSync` for the check), which Argo CD prefers over the Helm ones. A first Argo CD sync creates the jobs together with the rest of the release and they wait for their dependencies the same way. Override `components.<job>.annotations` if your sync policy needs something else.
+
+Every job has an `activeDeadlineSeconds`, so a missing dependency fails the install with a job log instead of hanging it.
+
 ## Profiles
 
 - `profile.mode=bundled` deploys PostHog plus bundled backing services through maintained subcharts where practical. Use it for non-production evaluation.
@@ -35,7 +43,7 @@ Install from the GitHub Container Registry after a chart version has been publis
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.29 \
+  --version 0.3.0 \
   --namespace posthog \
   --create-namespace \
   --set global.domain=posthog.example.com \
@@ -82,6 +90,8 @@ kubectl -n posthog create secret generic posthog-runtime-secrets \
 
 `ENCRYPTION_SALT_KEYS` must contain one or more comma-separated 32-character URL-safe keys. `openssl rand -hex 16` produces a valid single key. Keep old keys in the comma-separated list when rotating so existing encrypted integration data remains decryptable.
 
+When you let the chart generate these values instead, it mints them once and reads the existing Secret back on every upgrade, so keys stay stable. That relies on Helm's `lookup`, which `helm template` and Argo CD do not have: a GitOps install without `secrets.existingSecret` or explicit `secrets.values` would get fresh keys on every sync. Always set one of the two there.
+
 Create provider credential secrets matching your production values file:
 
 ```bash
@@ -107,7 +117,7 @@ Install from the published OCI chart:
 
 ```bash
 helm upgrade --install posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.29 \
+  --version 0.3.0 \
   --namespace posthog \
   -f ./values.production.yaml
 ```
@@ -132,7 +142,9 @@ helm upgrade --install posthog . \
 | ClickHouse | `external.clickhouse.*` | The configured user needs enough privileges for PostHog migrations: database/table creation, materialized views, dictionaries, Kafka-engine tables, named collections, and `SYSTEM FLUSH LOGS`. Set `cluster`/`migrationsCluster` when using replicated clusters. |
 | Object storage | `external.objectStorage.*` | S3-compatible endpoint and bucket for general object storage. Create the bucket before installing when the provider does not auto-create buckets. |
 | Session recording storage | `external.sessionRecording.*` | S3-compatible endpoint and credentials for replay payloads. This can share the same provider/secret as object storage, but keep a separate bucket or prefix operationally. |
-| Temporal | `external.temporal.*`, `components.temporal.enabled` | Existing Temporal frontend endpoint, or the bundled Temporal component with `external.temporal.host` pointing at the chart service. Disable `components.temporal` only when you provide managed Temporal. |
+| Temporal | `external.temporal.*`, `components.temporal.enabled` | Existing Temporal frontend endpoint, or the bundled Temporal component with `external.temporal.host` pointing at the chart service. Disable `components.temporal` only when you provide managed Temporal. The bundled Temporal reads its Postgres credentials from the chart's Postgres settings, so with external Postgres it needs `external.postgres.passwordSecret`; a bare `external.postgres.url` leaves `POSTGRES_PWD` empty. |
+| CDP shadow store | `external.valkey.*`, `components.valkey.enabled` | Redis-compatible instance the CDP services dual-write to. It must be separate from the main Redis: the rate limiters run the same token-bucket calls against both, so one instance behind both names charges every key twice. The bundled `valkey` component is used unless `external.valkey.host` is set. Contents are disposable. |
+| Error tracking symbol resolution | `components.cymbalResolution` | Cymbal's processing mode has no inline symbol resolution and refuses to boot without a resolution service. The chart runs one behind a headless Service and points `cymbal` at it; it shares the object storage settings for symbol sets. |
 | OpenSearch | `external.opensearch.host` | Optional but recommended for search-backed features. Include the URL scheme when TLS is used, for example `https://opensearch.example.com:9200`. |
 
 ## Runtime Secrets
@@ -200,7 +212,7 @@ When `external.postgres.passwordSecret.name` is set, the chart builds `DATABASE_
 
 ## Kafka Topics
 
-The `kafkaInit` job creates the topics in `kafka.topics` before migrations and workloads start. It uses Redpanda's `rpk` CLI against `KAFKA_HOSTS`.
+The `kafkaInit` job creates the topics in `kafka.topics` once Kafka answers. It uses Redpanda's `rpk` CLI against `KAFKA_HOSTS` and only creates topics that are missing: changing `kafka.defaultPartitions` later does not alter existing topics, so repartition those yourself.
 
 Use the built-in topic job only when `rpk topic list --brokers "$KAFKA_HOSTS"` and `rpk topic create ...` work from inside the cluster without extra SASL/TLS flags. For managed Kafka, pre-create topics yourself and disable the job:
 
@@ -215,6 +227,10 @@ Keep `kafka.defaultPartitions` and `kafka.defaultReplicationFactor` aligned with
 ## Ingress, DNS, and TLS
 
 `global.siteUrl` must be the externally reachable PostHog URL. Event capture, feature flags, session recording, and redirects depend on it. `ingress.host` defaults to `global.domain` when omitted.
+
+`routing.routes` mirrors the upstream Caddy proxy from `docker-compose.base.yml`: capture (`/e`, `/i/v0`, `/i/v1/analytics/events`, `/batch`, `/capture`), AI capture, replay capture, logs/traces/metrics, flags including `/api/feature_flag/local_evaluation`, surveys and remote config, webhooks, livestream, and the web app for everything else. In bundled mode `routing.objectStorageRoute` also forwards `/<bucket>` to the bundled object store, because `OBJECT_STORAGE_PUBLIC_ENDPOINT` defaults to the site URL. The bucket name is fixed to `posthog` in bundled mode unless you also change the minio subchart's `defaultBuckets`. In external mode set `external.objectStorage.publicEndpoint` instead.
+
+The `/livestream` route must reach the service without its prefix. An Ingress cannot express that portably, so `ingress.stripPrefix.mode` controls it: `nginx` renders a second Ingress with ingress-nginx's `rewrite-target` annotation and buffering disabled for server-sent events; `none` passes the prefix through and leaves stripping to your controller; `auto` (the default) picks `nginx` when `ingress.className` contains `nginx` and `none` otherwise. The optional Caddy `proxy` component honours `stripPrefix` directly.
 
 Example with cert-manager and nginx:
 
@@ -270,7 +286,7 @@ helm lint --strict .
 helm template posthog . > /tmp/posthog.yaml
 helm template posthog . -f ./examples/external-values.yaml > /tmp/posthog-external.yaml
 helm template posthog oci://ghcr.io/mayflower/posthog-helm/posthog \
-  --version 0.2.29 \
+  --version 0.3.0 \
   -f ./values.production.yaml > /tmp/posthog-production.yaml
 ```
 

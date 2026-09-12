@@ -1,0 +1,32 @@
+{{- /*
+A Deployment with persistence.enabled used to get an emptyDir, which is not
+persistence. It now gets one PersistentVolumeClaim, so keep such components at
+one replica or use a ReadWriteMany storage class. Set persistence.existingClaim
+to bring your own claim instead.
+*/ -}}
+{{- $root := . -}}
+{{- range $name, $component := .Values.components }}
+{{- $persistence := default dict $component.persistence -}}
+{{- if and $component.enabled (eq $component.kind "Deployment") $persistence.enabled (not $persistence.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "posthog.componentFullname" (dict "root" $root "name" $name) }}-data
+  labels:
+    {{- include "posthog.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
+  annotations:
+    # Data outlives the release, like a StatefulSet's claims do.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml (default (list "ReadWriteOnce") $persistence.accessModes) | nindent 4 }}
+  {{- with $persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $persistence.size | quote }}
+{{- end }}
+{{- end }}

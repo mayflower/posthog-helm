@@ -16,6 +16,9 @@ global:
   tolerations: []
   topologySpreadConstraints: []
   priorityClassName: ""
+  # Applied to every workload unless the component sets its own. Unset means
+  # the Kubernetes default of 30s; the Celery worker overrides it below.
+  terminationGracePeriodSeconds: null
   allowMutableImageTags: true
 
 subcharts:
@@ -39,6 +42,8 @@ kafka:
     - events_plugin_ingestion_overflow
     - events_plugin_ingestion_async
     - events_plugin_ingestion_historical
+    - events_plugin_ingestion_ai
+    - events_plugin_ingestion_ai_overflow
     - plugin_log_entries
     - events_dead_letter_queue
     - clickhouse_groups
@@ -115,13 +120,17 @@ secrets:
     captureLogsJwtSecret: CAPTURE_LOGS_JWT_SECRET
     livestreamJwtSecret: LIVESTREAM_JWT_SECRET
     internalApiSecret: INTERNAL_API_SECRET
-  # Optional. recording-api refuses to start in production without auth: it
-  # wants either RECORDING_API_JWT_SECRET, or RECORDING_API_ALLOW_LEGACY_SECRET
-  # with INTERNAL_API_SECRET. Set this to the key holding the JWT secret in your
-  # Secret; leave it empty to stay on the legacy path. Empty means the variable
-  # is not injected at all, so installs with an externally managed Secret that
-  # lacks the key keep working.
-  recordingApiJwtSecret: ""
+    # Optional. recording-api refuses to start in production without auth: it
+    # wants either RECORDING_API_JWT_SECRET, or RECORDING_API_ALLOW_LEGACY_SECRET
+    # with INTERNAL_API_SECRET. Set this to the key holding the JWT secret in
+    # your Secret; leave it empty to stay on the legacy path. Empty means the
+    # variable is not injected at all, so installs with an externally managed
+    # Secret that lacks the key keep working.
+    recordingApiJwtSecret: ""
+  # The generated values below are only minted once: on upgrades the chart
+  # reads the existing Secret back (Helm lookup) and keeps what is there.
+  # `helm template` and Argo CD cannot look anything up, so for GitOps set
+  # secrets.existingSecret or fill in explicit values here.
   values:
     secretKey: ""
     encryptionSaltKeys: ""
@@ -234,8 +243,13 @@ images:
     repository: localstack/localstack
     tag: 4.12.0
   seaweedfs:
+    # Upstream pins >= 4.05: 4.03 and 4.04 silently drop Content-Encoding
+    # metadata, which breaks gzipped objects that rely on the header.
     repository: chrislusf/seaweedfs
-    tag: "4.03"
+    tag: "4.29"
+  valkey:
+    repository: valkey/valkey
+    tag: 8.1-alpine
   duckgres:
     repository: ghcr.io/posthog/duckgres
     tag: 5cfca88a52f366765fcdb122056e7ad3f038ec4f
@@ -290,12 +304,23 @@ external:
       key: secret-key
   sessionRecording:
     endpoint: ""
+    bucket: posthog
+    region: us-east-1
     accessKeySecret:
       name: ""
       key: access-key
     secretKeySecret:
       name: ""
       key: secret-key
+  # The CDP shadow store. Leave host empty to keep using the bundled valkey
+  # component in external mode.
+  valkey:
+    host: ""
+    port: 6379
+    tls: false
+    passwordSecret:
+      name: ""
+      key: password
   temporal:
     host: ""
     port: 7233
@@ -331,8 +356,13 @@ internal:
     region: us-east-1
   sessionRecording:
     endpoint: http://seaweedfs:8333
+    bucket: posthog
+    region: us-east-1
     accessKey: any
     secretKey: any
+  valkey:
+    host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"valkey\") }}"
+    port: 6379
   temporal:
     host: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"temporal\") }}"
     port: 7233
@@ -345,8 +375,35 @@ ingress:
   annotations: {}
   tls: []
   host: ""
+  # Routes marked stripPrefix must not pass their prefix to the backend
+  # (livestream serves /events, not /livestream/events). An Ingress cannot say
+  # that portably: with mode nginx the chart renders a second Ingress carrying
+  # ingress-nginx's rewrite-target annotation; with mode none the prefix is
+  # passed through unchanged and you have to strip it in your controller or
+  # enable the bundled Caddy proxy, which honours stripPrefix directly. auto
+  # picks nginx when ingress.className contains "nginx" and none otherwise.
+  stripPrefix:
+    mode: auto
+    annotations:
+      # Live events are server-sent events; buffering them defeats the point.
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
 
 routing:
+  # OBJECT_STORAGE_PUBLIC_ENDPOINT defaults to the site URL, so browser-facing
+  # object URLs are <siteUrl>/<bucket>/... and the bucket path has to reach the
+  # bundled object store. Only rendered in bundled mode; in external mode set
+  # external.objectStorage.publicEndpoint instead.
+  objectStorageRoute:
+    enabled: true
+    # Empty means /<bucket> from internal.objectStorage.bucket. The minio
+    # subchart's defaultBuckets below is a plain list and must name the same
+    # bucket; Helm cannot template subchart values.
+    path: ""
+    host: objectstorage
+    port: 9000
+  # Mirrors the upstream Caddy proxy in docker-compose.base.yml. More specific
+  # paths come first for controllers that match in list order.
   routes:
     - path: /livestream
       service: livestream
@@ -354,6 +411,12 @@ routing:
       stripPrefix: true
     - path: /i/v0/ai
       service: capture-ai
+      port: 3000
+    - path: /i/v0
+      service: capture
+      port: 3000
+    - path: /i/v1/analytics/events
+      service: capture
       port: 3000
     # Keep frontend assets on the Django web service. Some ingress
     # controllers treat /s as a raw string prefix and would otherwise route
@@ -370,6 +433,9 @@ routing:
     - path: /i/v1/traces
       service: capture-logs
       port: 4318
+    - path: /i/v1/metrics
+      service: capture-logs
+      port: 4318
     - path: /e
       service: capture
       port: 3000
@@ -380,6 +446,9 @@ routing:
       service: capture
       port: 3000
     - path: /flags
+      service: feature-flags
+      port: 3001
+    - path: /api/feature_flag/local_evaluation
       service: feature-flags
       port: 3001
     - path: /surveys
@@ -454,7 +523,7 @@ components:
       OTEL_EXPORTER_OTLP_ENDPOINT: ""
       OTEL_SDK_DISABLED: "true"
       POSTHOG_SKIP_MIGRATION_CHECKS: "1"
-      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
       PERSONHOG_ROLLOUT_PERCENTAGE: "100"
       RECORDING_API_URL: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"recordingApi\" \"port\" 6738) }}"
@@ -474,7 +543,10 @@ components:
         timeoutSeconds: 5
       startup:
         httpGet:
-          path: /_readyz
+          # Without a role /_readyz runs every check, including
+          # postgres_migrations_uptodate, which cannot pass before the
+          # post-install migrate job has run; the web role leaves it out.
+          path: /_readyz?role=web
           port: http
         failureThreshold: 30
         periodSeconds: 10
@@ -484,12 +556,19 @@ components:
     image: app
     replicas: 1
     command: ["./bin/docker-worker-celery"]
+    # RedBeat holds a distributed lock, so several workers with the scheduler
+    # do not double-schedule; split the scheduler into its own single-replica
+    # component when you scale workers, so scheduling does not roll with them.
     args: ["--with-scheduler"]
+    # docker-worker-celery drains in-flight tasks on SIGTERM and expects a
+    # long grace period (upstream runs with 1230s); the Kubernetes default of
+    # 30s kills running tasks on every rollout.
+    terminationGracePeriodSeconds: 1230
     env:
       API_QUERIES_PER_TEAM: '{"1": 100}'
       FLAGS_REDIS_ENABLED: "false"
       POSTHOG_SKIP_MIGRATION_CHECKS: "1"
-      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
       PERSONHOG_ROLLOUT_PERCENTAGE: "100"
       RECORDING_API_URL: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"recordingApi\" \"port\" 6738) }}"
@@ -516,15 +595,16 @@ components:
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
       CDP_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
       # server.ts throws "PersonHog client is required for CDP" without these.
-      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
       # createCdpValkeyShadowPools throws without CDP_VALKEY_HOST: every CDP
-      # process mirrors its writes to a second store. There is no Valkey in this
-      # chart, so it defaults to the same Redis -- the shadow holds the same keys
-      # by design, so writing them twice into one instance is idempotent. Point
-      # it at a real Valkey to get the redundancy the dual-write is meant for.
-      CDP_VALKEY_HOST: "{{ include \"posthog.redisHost\" . }}"
-      CDP_VALKEY_PORT: "{{ include \"posthog.redisPort\" . }}"
+      # process dual-writes to a second store. It must be a separate instance:
+      # the rate limiters and hog watcher run the same token-bucket calls
+      # against both pools, so one Redis behind both names gets every key
+      # charged twice. The bundled valkey component below is that store.
+      CDP_VALKEY_HOST: "{{ include \"posthog.valkeyHost\" . }}"
+      CDP_VALKEY_PORT: "{{ include \"posthog.valkeyPort\" . }}"
+      CDP_VALKEY_TLS: "{{ include \"posthog.valkeyTls\" . }}"
       # Renamed upstream: server.ts reads CYCLOTRON_NODE_DATABASE_URL at four
       # call sites and aborts without it ("required for
       # CdpCyclotronWorkerBatchResolve"). CYCLOTRON_DATABASE_URL is no longer
@@ -549,8 +629,19 @@ components:
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
       # The AI scope hard-requires the client: PersonHogClientComponent.start()
       # throws when createPersonHogClient returns null.
-      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
+      # Combined mode consumes the events_plugin_ingestion_ai lane and owns AI
+      # blob offload. Without a bucket, multimodal payloads are stored inline
+      # instead of as blob references. The credentials expand from the object
+      # storage secret commonEnv injects.
+      AI_BLOB_S3_BUCKET: ai-blobs
+      AI_BLOB_S3_PREFIX: aio/
+      AI_BLOB_S3_ENDPOINT: "{{ include \"posthog.objectStorageEndpoint\" . }}"
+      AI_BLOB_S3_REGION: "{{ include \"posthog.objectStorageRegion\" . }}"
+      AI_BLOB_S3_ACCESS_KEY_ID: "$(OBJECT_STORAGE_ACCESS_KEY_ID)"
+      AI_BLOB_S3_SECRET_ACCESS_KEY: "$(OBJECT_STORAGE_SECRET_ACCESS_KEY)"
+      AI_BLOB_OFFLOAD_TEAMS: "*"
   ingestionSessionReplay:
     enabled: true
     kind: Deployment
@@ -587,7 +678,7 @@ components:
       CDP_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
       # error-tracking-server.ts: "PersonHog client is required for error
       # tracking".
-      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceAddress\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
       PERSONHOG_ENABLED: "true"
   ingestionLogs:
     enabled: true
@@ -661,13 +752,11 @@ components:
       enabled: true
     env:
       ADDRESS: 0.0.0.0:3000
-      KAFKA_TOPIC: events_plugin_ingestion
-      CAPTURE_MODE: events
+      # `ai` mode produces to the AI lane as its main topic, matching the
+      # upstream capture-ai deployment; the combined ingester consumes it.
+      KAFKA_TOPIC: events_plugin_ingestion_ai
+      CAPTURE_MODE: ai
       RUST_LOG: info,rdkafka=warn
-      AI_S3_BUCKET: ai-blobs
-      AI_S3_PREFIX: llma/
-      AI_S3_ENDPOINT: "{{ include \"posthog.objectStorageEndpoint\" . }}"
-      AI_S3_REGION: "{{ include \"posthog.objectStorageRegion\" . }}"
   captureLogs:
     enabled: true
     kind: Deployment
@@ -694,6 +783,10 @@ components:
       SKIP_WRITES: "false"
       SKIP_READS: "false"
       FILTER_MODE: opt-out
+      # Group property definitions are dropped for any group type the service
+      # cannot resolve, and it resolves them through PersonHog. tonic builds
+      # the channel from this value, so it needs the scheme.
+      PERSONHOG_ADDR: "{{ include \"posthog.serviceUrl\" (dict \"root\" . \"name\" \"personhogRouter\" \"port\" 50052) }}"
   featureFlags:
     enabled: true
     kind: Deployment
@@ -709,6 +802,13 @@ components:
       ADDRESS: 0.0.0.0:3001
       RUST_LOG: info
       MAXMIND_DB_PATH: /app/share/GeoLite2-City.mmdb
+      # The Rust service does not read DATABASE_URL; each of these defaults to
+      # localhost when unset. Upstream points the persons pair at the main
+      # database as well.
+      WRITE_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
+      READ_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
+      PERSONS_WRITE_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
+      PERSONS_READ_DATABASE_URL: "{{ include \"posthog.postgresUrl\" . }}"
       COOKIELESS_REDIS_HOST: "{{ include \"posthog.redisHost\" . }}"
       COOKIELESS_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
     probes:
@@ -793,7 +893,7 @@ components:
       LIVESTREAM_POSTGRES_URL: "{{ include \"posthog.postgresUrl\" . }}"
       LIVESTREAM_REDIS_ADDRESS: "{{ include \"posthog.redisHost\" . }}"
       LIVESTREAM_REDIS_PORT: "{{ include \"posthog.redisPort\" . }}"
-      LIVESTREAM_REDIS_TLS: "false"
+      LIVESTREAM_REDIS_TLS: "{{ include \"posthog.redisTls\" . }}"
       LIVESTREAM_REDIS_USE_PUB_SUB: "true"
       LIVESTREAM_CONSUMERS_EVENT_ENABLED: "true"
       LIVESTREAM_CONSUMERS_EVENT_BROKERS: "{{ include \"posthog.kafkaHosts\" . }}"
@@ -828,7 +928,6 @@ components:
     service:
       enabled: true
     env:
-      OBJECT_STORAGE_BUCKET: posthog
       OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       BIND_HOST: 0.0.0.0
       BIND_PORT: "3302"
@@ -836,6 +935,43 @@ components:
       MAXMIND_DB_PATH: /app/share/GeoLite2-City.mmdb
       ISSUE_BUCKETS_REDIS_URL: "{{ include \"posthog.redisUrl\" . }}"
       RUST_LOG: info
+      # Processing mode has no inline symbol resolution: it fails boot when
+      # this is empty, and resolves the hostname to one gRPC channel per pod
+      # IP, hence the headless service on cymbalResolution.
+      CYMBAL_REMOTE_RESOLUTION_HOST: "{{ include \"posthog.serviceHost\" (dict \"root\" . \"name\" \"cymbalResolution\") }}"
+      CYMBAL_REMOTE_RESOLUTION_PORT: "50061"
+  cymbalResolution:
+    enabled: true
+    kind: Deployment
+    image: cymbal
+    replicas: 1
+    ports:
+      - name: grpc
+        containerPort: 50061
+        servicePort: 50061
+      - name: metrics
+        containerPort: 9101
+        servicePort: 9101
+    service:
+      enabled: true
+      clusterIP: None
+    env:
+      CYMBAL_MODE: resolution
+      GRPC_ADDRESS: 0.0.0.0:50061
+      METRICS_PORT: "9101"
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+      RUST_LOG: info
+    probes:
+      liveness:
+        httpGet:
+          path: /_liveness
+          port: metrics
+        periodSeconds: 10
+      readiness:
+        httpGet:
+          path: /_readiness
+          port: metrics
+        periodSeconds: 10
   ingestionMetrics:
     enabled: false
     kind: Deployment
@@ -978,21 +1114,35 @@ components:
           path: /_ready
           port: http
         periodSeconds: 10
+  # Install ordering. Helm creates pre-install hooks before anything else in
+  # the release, so a pre-install job that uses the chart's ServiceAccount and
+  # Secret, or the bundled databases, can never start on a fresh install. The
+  # init jobs therefore run post-install, when everything exists, and
+  # pre-upgrade, when everything already existed. Argo CD ignores Helm hook
+  # annotations once its own are present: as Sync hooks the jobs are created
+  # with the rest of the sync and wait for their dependencies inside the pod.
+  # Every wait is bounded, so a missing dependency fails the job instead of
+  # hanging the install.
   migrate:
     enabled: true
     kind: Job
     image: app
-    hook: pre-install,pre-upgrade
+    hook: post-install,pre-upgrade
+    hookWeight: 0
+    activeDeadlineSeconds: 3600
+    annotations:
+      argocd.argoproj.io/hook: Sync
+      argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
     command: ["/bin/sh", "-c"]
     args:
       - |
         set -e
         if [ -n "${CLICKHOUSE_HOST:-}" ]; then
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 150); do
             if python -c 'import os; from clickhouse_driver import Client; Client(host=os.environ["CLICKHOUSE_HOST"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), secure=os.environ.get("CLICKHOUSE_SECURE", "false").lower() == "true", verify=os.environ.get("CLICKHOUSE_VERIFY", "false").lower() == "true").execute("SYSTEM FLUSH LOGS")'; then
               break
             fi
-            if [ "$attempt" -eq 30 ]; then
+            if [ "$attempt" -eq 150 ]; then
               echo "ClickHouse log preflight failed" >&2
               exit 1
             fi
@@ -1005,6 +1155,11 @@ components:
     kind: Job
     image: app
     hook: post-install,post-upgrade
+    hookWeight: 10
+    activeDeadlineSeconds: 900
+    annotations:
+      argocd.argoproj.io/hook: PostSync
+      argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
     command: ["python", "manage.py", "run_async_migrations", "--check"]
     env:
       SKIP_ASYNC_MIGRATIONS_SETUP: "0"
@@ -1012,12 +1167,26 @@ components:
     enabled: true
     kind: Job
     image: redpandaTools
-    hook: pre-install,pre-upgrade
+    hook: post-install,pre-upgrade
+    hookWeight: -5
+    activeDeadlineSeconds: 900
+    annotations:
+      argocd.argoproj.io/hook: Sync
+      argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
     command: ["/bin/sh", "-c"]
     args:
       - |
         set -e
-        until rpk topic list --brokers "${KAFKA_HOSTS}"; do sleep 2; done
+        for attempt in $(seq 1 150); do
+          if rpk topic list --brokers "${KAFKA_HOSTS}" >/dev/null 2>&1; then
+            break
+          fi
+          if [ "$attempt" -eq 150 ]; then
+            echo "Kafka at ${KAFKA_HOSTS} not reachable after 5 minutes" >&2
+            exit 1
+          fi
+          sleep 2
+        done
         topics="{{ range .Values.kafka.topics }} {{ . }}{{ end }}"
         for topic in $topics; do
           if rpk topic create "$topic" --brokers "${KAFKA_HOSTS}" -p {{ .Values.kafka.defaultPartitions }} -r {{ .Values.kafka.defaultReplicationFactor }}; then
@@ -1064,8 +1233,11 @@ components:
         mountPath: /etc/temporal/config/dynamicconfig
     env:
       DB: postgres12
-      DB_PORT: "5432"
-      POSTGRES_USER: posthog
+      DB_PORT: "{{ include \"posthog.postgresPort\" . }}"
+      POSTGRES_USER: "{{ include \"posthog.postgresUser\" . }}"
+      # auto-setup does not read DATABASE_URL. Empty in external mode when
+      # only external.postgres.url is set; use passwordSecret or extraEnv then.
+      POSTGRES_PWD: "{{ include \"posthog.postgresPasswordValue\" . }}"
       POSTGRES_SEEDS: "{{ include \"posthog.postgresHost\" . }}"
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
       ENABLE_ES: "false"
@@ -1098,9 +1270,24 @@ components:
     image: seaweedfs
     replicas: 1
     command: ["/bin/sh", "-c"]
+    # The replay bucket does not create itself. A backgrounded, bounded loop
+    # creates it once the master answers, while weed itself is exec'd as PID 1
+    # so SIGTERM reaches it directly and a crash restarts the container.
     args:
       - |
-        /usr/bin/weed server -s3 -s3.port=8333 -dir=/data
+        BUCKET="{{ include "posthog.sessionRecordingBucket" . }}"
+        (
+          for attempt in $(seq 1 120); do
+            sleep 5
+            if echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:9333 2>/dev/null | grep -qx "$BUCKET"; then
+              echo "SeaweedFS ready with bucket $BUCKET"
+              exit 0
+            fi
+            echo "s3.bucket.create -name $BUCKET" | /usr/bin/weed shell -master=localhost:9333 2>&1 || true
+          done
+          echo "SeaweedFS bucket $BUCKET still missing after 10 minutes" >&2
+        ) &
+        exec /usr/bin/weed server -s3 -s3.port=8333 -dir=/data
     ports:
       - name: s3
         containerPort: 8333
@@ -1114,6 +1301,34 @@ components:
       enabled: true
       size: 20Gi
       mountPath: /data
+  # CDP shadow store. Disposable by design: no volume, evicted under the cap,
+  # same settings as upstream's valkey container.
+  valkey:
+    enabled: true
+    kind: Deployment
+    image: valkey
+    replicas: 1
+    args:
+      - valkey-server
+      - --maxmemory-policy
+      - allkeys-lru
+      - --maxmemory
+      - 200mb
+    ports:
+      - name: redis
+        containerPort: 6379
+        servicePort: 6379
+    service:
+      enabled: true
+    probes:
+      readiness:
+        exec:
+          command: ["valkey-cli", "ping"]
+        periodSeconds: 5
+      liveness:
+        tcpSocket:
+          port: redis
+        periodSeconds: 10
   elasticsearch:
     enabled: false
     kind: StatefulSet

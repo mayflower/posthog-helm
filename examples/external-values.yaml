@@ -24,6 +24,10 @@ global:
 ingress:
   enabled: true
   className: nginx
+  # auto renders the /livestream prefix rewrite for an nginx className; set
+  # none for other controllers and strip the prefix there.
+  stripPrefix:
+    mode: auto
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
   tls:
@@ -86,6 +90,15 @@ external:
   temporal:
     host: temporal.example.com
     port: 7233
+  # CDP shadow store. Leave host empty to use the bundled valkey component;
+  # if you point it elsewhere it must not be the main Redis above.
+  valkey:
+    host: ""
+    port: 6379
+    tls: false
+    passwordSecret:
+      name: ""
+      key: password
   opensearch:
     host: opensearch.example.com:9200
 

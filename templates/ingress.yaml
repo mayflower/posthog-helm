@@ -1,5 +1,24 @@
 {{- if .Values.ingress.enabled -}}
 {{- $host := default .Values.global.domain .Values.ingress.host -}}
+{{- $strip := default dict .Values.ingress.stripPrefix -}}
+{{- $stripMode := default "auto" $strip.mode -}}
+{{- if eq $stripMode "auto" -}}
+{{- $stripMode = ternary "nginx" "none" (contains "nginx" (default "" .Values.ingress.className)) -}}
+{{- end -}}
+{{- $plain := list -}}
+{{- $rewritten := list -}}
+{{- range .Values.routing.routes -}}
+{{- if and .stripPrefix (ne $stripMode "none") -}}
+{{- $rewritten = append $rewritten . -}}
+{{- else -}}
+{{- $plain = append $plain . -}}
+{{- end -}}
+{{- end -}}
+{{- $objectStorage := default dict .Values.routing.objectStorageRoute -}}
+{{- /* Annotations for the rewrite Ingress are one merged map so no key is
+       emitted twice: stripPrefix.annotations win over the rewrite keys, which
+       win over ingress.annotations. */ -}}
+{{- $rewrite := dict "nginx.ingress.kubernetes.io/use-regex" "true" "nginx.ingress.kubernetes.io/rewrite-target" "/$2" -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -22,7 +41,18 @@ spec:
     - host: {{ $host | quote }}
       http:
         paths:
-          {{- range .Values.routing.routes }}
+          {{- if and $objectStorage.enabled (eq .Values.profile.mode "bundled") }}
+          # Browser-facing object URLs default to the site URL, so the bucket
+          # path has to reach the bundled object store through the same host.
+          - path: {{ default (printf "/%s" (include "posthog.objectStorageBucket" .)) $objectStorage.path | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ tpl $objectStorage.host . | quote }}
+                port:
+                  number: {{ $objectStorage.port }}
+          {{- end }}
+          {{- range $plain }}
           - path: {{ .path | quote }}
             pathType: {{ default "Prefix" .pathType }}
             backend:
@@ -31,4 +61,39 @@ spec:
                 port:
                   number: {{ .port }}
           {{- end }}
+{{- if and $rewritten (eq $stripMode "nginx") }}
+---
+# Routes whose prefix must not reach the backend. ingress-nginx applies
+# rewrite-target to every path in an Ingress, so they get their own object with
+# a capture group per path and the prefix dropped from the upstream request.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "posthog.fullname" . }}-strip-prefix
+  labels:
+    {{- include "posthog.labels" . | nindent 4 }}
+  annotations:
+    {{- merge (deepCopy (default dict $strip.annotations)) $rewrite (deepCopy (default dict .Values.ingress.annotations)) | toYaml | nindent 4 }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range $rewritten }}
+          - path: {{ printf "%s(/|$)(.*)" .path | quote }}
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "posthog.serviceHost" (dict "root" $ "name" .service) }}
+                port:
+                  number: {{ .port }}
+          {{- end }}
+{{- end }}
 {{- end }}

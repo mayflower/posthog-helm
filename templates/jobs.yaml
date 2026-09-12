@@ -18,7 +18,10 @@ metadata:
   annotations:
     {{- with $component.hook }}
     helm.sh/hook: {{ . | quote }}
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-delete-policy: {{ default "before-hook-creation,hook-succeeded" $component.hookDeletePolicy | quote }}
+    {{- end }}
+    {{- if hasKey $component "hookWeight" }}
+    helm.sh/hook-weight: {{ $component.hookWeight | quote }}
     {{- end }}
     {{- with $component.annotations }}
     {{- toYaml . | nindent 4 }}
@@ -26,6 +29,9 @@ metadata:
   {{- end }}
 spec:
   backoffLimit: {{ default 3 $component.backoffLimit }}
+  {{- with $component.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ . }}
+  {{- end }}
   {{- with $component.ttlSecondsAfterFinished }}
   ttlSecondsAfterFinished: {{ . }}
   {{- end }}

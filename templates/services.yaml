@@ -13,6 +13,9 @@ metadata:
     app.kubernetes.io/component: {{ include "posthog.componentName" $name }}
 spec:
   type: {{ default "ClusterIP" $service.type }}
+  {{- with $service.clusterIP }}
+  clusterIP: {{ . | quote }}
+  {{- end }}
   selector:
     {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 4 }}
   ports:

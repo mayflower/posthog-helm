@@ -26,6 +26,20 @@ spec:
   {{- if not $autoscaling.enabled }}
   replicas: {{ default 1 $component.replicas }}
   {{- end }}
+  {{- if eq $component.kind "Deployment" }}
+  {{- if $component.strategy }}
+  strategy:
+    {{- toYaml $component.strategy | nindent 4 }}
+  {{- else if $persistence.enabled }}
+  # A ReadWriteOnce claim cannot be attached to the surge pod as well.
+  strategy:
+    type: Recreate
+  {{- end }}
+  {{- end }}
+  {{- if and (eq $component.kind "StatefulSet") $component.updateStrategy }}
+  updateStrategy:
+    {{- toYaml $component.updateStrategy | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "posthog.selectorLabels" (dict "root" $root "name" $name) | nindent 6 }}
@@ -49,6 +63,11 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "posthog.serviceAccountName" $root }}
+      {{- if hasKey $component "terminationGracePeriodSeconds" }}
+      terminationGracePeriodSeconds: {{ $component.terminationGracePeriodSeconds }}
+      {{- else if not (kindIs "invalid" $root.Values.global.terminationGracePeriodSeconds) }}
+      terminationGracePeriodSeconds: {{ $root.Values.global.terminationGracePeriodSeconds }}
+      {{- end }}
       {{- with $root.Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -80,6 +99,10 @@ spec:
         - name: {{ include "posthog.componentName" $name }}
           image: {{ include "posthog.image" (dict "root" $root "image" $component.image) }}
           imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          {{- with $component.lifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{ with $component.command }}
           command:
             {{- toYaml . | nindent 12 }}
@@ -140,11 +163,10 @@ spec:
           {{ end }}
       {{ if or $persistence.enabled $configMounts }}
       volumes:
-        {{- if $persistence.enabled }}
-        {{- if eq $component.kind "Deployment" }}
+        {{- if and $persistence.enabled (eq $component.kind "Deployment") }}
         - name: data
-          emptyDir: {}
-        {{- end }}
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-data" (include "posthog.componentFullname" (dict "root" $root "name" $name))) $persistence.existingClaim }}
         {{- end }}
         {{- range $configMounts }}
         - name: {{ .name }}

@@ -27,6 +27,17 @@
 {{- printf "%s://%s:%v" $scheme (include "posthog.serviceHost" (dict "root" .root "name" .name)) .port -}}
 {{- end -}}
 
+{{/*
+host:port without a scheme. gRPC clients differ on what they accept: the Node
+and Python PersonHog clients add the scheme themselves (connect-node builds
+`${scheme}://${addr}`, grpc-python takes a bare target), so a URL produces
+`http://http://host:port`. The Rust clients go through tonic's
+Endpoint::from_shared, which needs the scheme, so they keep serviceUrl.
+*/}}
+{{- define "posthog.serviceAddress" -}}
+{{- printf "%s:%v" (include "posthog.serviceHost" (dict "root" .root "name" .name)) .port -}}
+{{- end -}}
+
 {{- define "posthog.labels" -}}
 app.kubernetes.io/name: {{ include "posthog.name" . }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
@@ -53,6 +64,41 @@ app.kubernetes.io/component: {{ include "posthog.componentName" .name }}
 
 {{- define "posthog.secretName" -}}
 {{- default (printf "%s-secrets" (include "posthog.fullname" .)) .Values.secrets.existingSecret -}}
+{{- end -}}
+
+{{/*
+A generated secret value that survives upgrades. Order: the explicit value
+from secrets.values, then whatever the Secret in the cluster already holds,
+then a fresh random string. Without the lookup every `helm upgrade` minted a
+new SECRET_KEY and ENCRYPTION_SALT_KEYS, which made already-encrypted
+integration credentials unreadable and rolled every pod through the
+checksum annotation. `helm template` and Argo CD render without cluster
+access, so lookup finds nothing there: GitOps installs must supply
+secrets.existingSecret or explicit secrets.values.
+*/}}
+{{- define "posthog.generatedSecretValue" -}}
+{{- if .value -}}
+{{- .value -}}
+{{- else -}}
+{{- /* Memoised on .Values for the whole render: secrets.yaml is included
+       once per workload for the checksum annotation, and each include must
+       see the same values or every checksum differs from the Secret. */ -}}
+{{- if not (hasKey .root.Values.secrets "_generated") -}}
+{{- $existing := lookup "v1" "Secret" .root.Release.Namespace (include "posthog.secretName" .root) -}}
+{{- $data := dict -}}
+{{- if $existing -}}{{- $data = default dict $existing.data -}}{{- end -}}
+{{- $_ := set .root.Values.secrets "_generated" (dict "existing" $data "minted" dict) -}}
+{{- end -}}
+{{- $cache := index .root.Values.secrets "_generated" -}}
+{{- if hasKey $cache.existing .key -}}
+{{- index $cache.existing .key | b64dec -}}
+{{- else -}}
+{{- if not (hasKey $cache.minted .key) -}}
+{{- $_ := set $cache.minted .key (randAlphaNum .length) -}}
+{{- end -}}
+{{- index $cache.minted .key -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "posthog.postgresPasswordSecretName" -}}
@@ -187,6 +233,28 @@ redis-password
 {{- end -}}
 {{- end -}}
 
+{{- define "posthog.postgresUser" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ .Values.external.postgres.user }}{{- else -}}{{ .Values.internal.postgres.user }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.postgresPort" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ .Values.external.postgres.port }}{{- else -}}{{ .Values.internal.postgres.port }}{{- end -}}
+{{- end -}}
+
+{{/*
+The Postgres password as an env value: the literal bundled password, or a
+$(POSTGRES_PASSWORD) expansion of the secret commonEnv injects in external
+mode. Empty when external mode only has external.postgres.url, because the
+password cannot be pulled back out of a URL in a template.
+*/}}
+{{- define "posthog.postgresPasswordValue" -}}
+{{- if eq .Values.profile.mode "external" -}}
+{{- if .Values.external.postgres.passwordSecret.name -}}$(POSTGRES_PASSWORD){{- end -}}
+{{- else -}}
+{{- .Values.internal.postgres.password -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "posthog.postgresUrlQuery" -}}
 {{- $params := dict -}}
 {{- if .Values.external.postgres.sslMode -}}
@@ -241,17 +309,37 @@ redis-password
 {{- end -}}
 
 {{- define "posthog.redisUrl" -}}
+{{- $scheme := ternary "rediss" "redis" (eq (include "posthog.redisTls" .) "true") -}}
 {{- if eq .Values.profile.mode "external" -}}
 {{- if .Values.external.redis.url -}}
 {{- .Values.external.redis.url -}}
 {{- else if .Values.external.redis.passwordSecret.name -}}
-{{- printf "redis://:$(REDIS_PASSWORD)@%s:%v/%v" (required "external.redis.host is required when using external.redis.passwordSecret" .Values.external.redis.host) .Values.external.redis.port (default 0 .Values.external.redis.database) -}}
+{{- printf "%s://:$(REDIS_PASSWORD)@%s:%v/%v" $scheme (required "external.redis.host is required when using external.redis.passwordSecret" .Values.external.redis.host) .Values.external.redis.port (default 0 .Values.external.redis.database) -}}
 {{- else -}}
-{{- printf "redis://%s:%v/%v" (required "external.redis.host is required in external mode" .Values.external.redis.host) .Values.external.redis.port (default 0 .Values.external.redis.database) -}}
+{{- printf "%s://%s:%v/%v" $scheme (required "external.redis.host is required in external mode" .Values.external.redis.host) .Values.external.redis.port (default 0 .Values.external.redis.database) -}}
 {{- end -}}
 {{- else -}}
-{{- printf "redis://%s:%v/%v" (tpl .Values.internal.redis.host .) .Values.internal.redis.port (default 0 .Values.internal.redis.database) -}}
+{{- printf "%s://%s:%v/%v" $scheme (tpl .Values.internal.redis.host .) .Values.internal.redis.port (default 0 .Values.internal.redis.database) -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The CDP shadow store. Every CDP process dual-writes to it, and the rate
+limiters and hog watcher run the same token-bucket calls against both stores,
+so it must not be the main Redis: pointed at one instance the same keys get
+charged twice. External mode uses external.valkey when set and otherwise
+falls back to the bundled component.
+*/}}
+{{- define "posthog.valkeyHost" -}}
+{{- if and (eq .Values.profile.mode "external") .Values.external.valkey.host -}}{{ .Values.external.valkey.host }}{{- else -}}{{ tpl .Values.internal.valkey.host . }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.valkeyPort" -}}
+{{- if and (eq .Values.profile.mode "external") .Values.external.valkey.host -}}{{ .Values.external.valkey.port }}{{- else -}}{{ .Values.internal.valkey.port }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.valkeyTls" -}}
+{{- if and (eq .Values.profile.mode "external") .Values.external.valkey.host -}}{{ ternary "true" "false" (default false .Values.external.valkey.tls) }}{{- else -}}false{{- end -}}
 {{- end -}}
 
 {{- define "posthog.kafkaHosts" -}}
@@ -318,6 +406,18 @@ redis-password
 
 {{- define "posthog.objectStoragePublicEndpoint" -}}
 {{- if eq .Values.profile.mode "external" -}}{{ default .Values.global.siteUrl .Values.external.objectStorage.publicEndpoint }}{{- else -}}{{ default .Values.global.siteUrl .Values.internal.objectStorage.publicEndpoint }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.objectStorageBucket" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ .Values.external.objectStorage.bucket }}{{- else -}}{{ .Values.internal.objectStorage.bucket }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.sessionRecordingBucket" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ default "posthog" .Values.external.sessionRecording.bucket }}{{- else -}}{{ default "posthog" .Values.internal.sessionRecording.bucket }}{{- end -}}
+{{- end -}}
+
+{{- define "posthog.sessionRecordingRegion" -}}
+{{- if eq .Values.profile.mode "external" -}}{{ default "us-east-1" .Values.external.sessionRecording.region }}{{- else -}}{{ default "us-east-1" .Values.internal.sessionRecording.region }}{{- end -}}
 {{- end -}}
 
 {{- define "posthog.objectStorageRegion" -}}
@@ -394,7 +494,7 @@ redis-password
     secretKeyRef:
       name: {{ include "posthog.secretName" . }}
       key: {{ .Values.secrets.keys.livestreamJwtSecret }}
-{{- with .Values.secrets.keys.recordingApiJwtSecret }}
+{{- with (default .Values.secrets.recordingApiJwtSecret .Values.secrets.keys.recordingApiJwtSecret) }}
 - name: RECORDING_API_JWT_SECRET
   valueFrom:
     secretKeyRef:
@@ -429,6 +529,13 @@ redis-password
   value: "$(REDIS_PASSWORD)"
 - name: TRACES_REDIS_PASSWORD
   value: "$(REDIS_PASSWORD)"
+{{- end }}
+{{- if and (eq .Values.profile.mode "external") .Values.external.valkey.host .Values.external.valkey.passwordSecret.name }}
+- name: CDP_VALKEY_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.external.valkey.passwordSecret.name }}
+      key: {{ .Values.external.valkey.passwordSecret.key }}
 {{- end }}
 - name: KAFKA_HOSTS
   value: {{ include "posthog.kafkaHosts" . | quote }}
@@ -528,6 +635,10 @@ redis-password
   value: {{ include "posthog.objectStorageEndpoint" . | quote }}
 - name: OBJECT_STORAGE_PUBLIC_ENDPOINT
   value: {{ include "posthog.objectStoragePublicEndpoint" . | quote }}
+- name: OBJECT_STORAGE_BUCKET
+  value: {{ include "posthog.objectStorageBucket" . | quote }}
+- name: OBJECT_STORAGE_REGION
+  value: {{ include "posthog.objectStorageRegion" . | quote }}
 - name: OBJECT_STORAGE_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef:
@@ -540,6 +651,10 @@ redis-password
       key: {{ include "posthog.objectStorageSecretKeySecretKey" . }}
 - name: SESSION_RECORDING_V2_S3_ENDPOINT
   value: {{ include "posthog.sessionRecordingEndpoint" . | quote }}
+- name: SESSION_RECORDING_V2_S3_BUCKET
+  value: {{ include "posthog.sessionRecordingBucket" . | quote }}
+- name: SESSION_RECORDING_V2_S3_REGION
+  value: {{ include "posthog.sessionRecordingRegion" . | quote }}
 - name: SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef:
